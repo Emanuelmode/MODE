@@ -277,11 +277,6 @@ def main():
 | Ruidoso | 0.20 |
 """)
 
-    # ── ESTADO INICIAL ───────────────────────────────────────────────
-    if 'result' not in st.session_state:
-        st.info("👈 Elegí una señal y presioná **▶ Ejecutar pipeline**")
-        st.stop()
-
     # ── EJECUCIÓN ────────────────────────────────────────────────────
     if run_btn:
         with st.spinner("Calculando ε · τ · métricas · R³…"):
@@ -295,6 +290,10 @@ def main():
                 st.error(f"Error en pipeline: {e}")
                 st.code(traceback.format_exc())
                 st.stop()
+
+    if 'result' not in st.session_state:
+        st.info("👈 Elegí una señal y presioná **▶ Ejecutar pipeline**")
+        st.stop()
 
     result = st.session_state['result']
     x      = st.session_state['x']
