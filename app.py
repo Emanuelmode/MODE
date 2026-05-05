@@ -350,6 +350,69 @@ def main():
     st.dataframe(df_res, use_container_width=True, hide_index=True)
     st.divider()
 
+    # ── BASELINES ────────────────────────────────────────────────────
+    st.subheader("📐 Baselines de comparación")
+    st.caption("Métodos estándar — para contrastar con R³")
+
+    x_bl = st.session_state['x']
+    x_bl = (x_bl - x_bl.mean()) / (x_bl.std() + 1e-12)
+
+    # 1. FOURIER
+    fft_vals  = np.abs(np.fft.rfft(x_bl))
+    freqs     = np.fft.rfftfreq(len(x_bl))
+    psd       = fft_vals**2
+    psd_norm  = psd / (psd.sum() + 1e-12)
+    # Entropía espectral (Shannon sobre PSD)
+    h_spectral = float(-np.sum(psd_norm[psd_norm > 0] *
+                               np.log2(psd_norm[psd_norm > 0])))
+    h_spec_max = np.log2(len(psd_norm))
+    h_spec_norm = h_spectral / (h_spec_max + 1e-12)
+    peak_freq   = float(freqs[1:][np.argmax(fft_vals[1:])])
+    peak_amp    = float(fft_vals[1:].max())
+    flat_ratio  = float(np.std(fft_vals[1:]) / (np.mean(fft_vals[1:]) + 1e-12))
+    espectro_plano = "SÍ (ruido/caos)" if flat_ratio < 1.5 else "NO (estructura)"
+
+    # 2. SHANNON sobre señal
+    bins_sh   = 32
+    hist, _   = np.histogram(x_bl, bins=bins_sh, density=True)
+    hist_norm = hist / (hist.sum() + 1e-12)
+    h_shannon = float(-np.sum(hist_norm[hist_norm > 0] *
+                              np.log2(hist_norm[hist_norm > 0])))
+    h_sh_max  = np.log2(bins_sh)
+    h_sh_norm = h_shannon / (h_sh_max + 1e-12)
+
+    # 3. D2 clásico (ya calculado en pipeline)
+    d2_val    = mvals.get('D2')
+
+    # Tabla comparativa
+    bl_rows = [
+        ('── FOURIER ──',              '',         ''),
+        ('Frecuencia pico',            f"{peak_freq:.4f}",   'Hz normalizado'),
+        ('Amplitud pico FFT',          f"{peak_amp:.3f}",    ''),
+        ('Entropía espectral',         f"{h_spectral:.3f}",  'bits'),
+        ('Entropía espectral norm.',   f"{h_spec_norm:.4f}", '0=orden · 1=caos/ruido'),
+        ('¿Espectro plano?',           espectro_plano,       'std/mean FFT'),
+        ('── SHANNON ──',              '',         ''),
+        ('H Shannon (señal)',          f"{h_shannon:.4f}",   'bits'),
+        ('H Shannon normalizada',      f"{h_sh_norm:.4f}",   '0=orden · 1=máx desorden'),
+        ('── D₂ CLÁSICO ──',          '',         ''),
+        ('D₂ (dim. correlación)',      f"{d2_val:.4f}" if d2_val else 'nan',
+                                                              'Lorenz≈2.05 · Ruido→alto'),
+        ('── R³ (nuestro) ──',        '',         ''),
+        ('R³ Score',                   f"{r3['R3_score']:.4f}", '≥0.75 → coherente'),
+        ('Coherente',                  '✔' if r3['coherent'] else '✘', ''),
+        ('Régimen detectado',          r3['regime_desc'],    'Con δ semidinamico'),
+    ]
+
+    df_bl = pd.DataFrame(bl_rows, columns=['Métrica', 'Valor', 'Referencia'])
+    st.dataframe(df_bl, use_container_width=True, hide_index=True)
+
+    # Export baseline
+    st.download_button("⬇ Baselines CSV",
+                       df_bl.to_csv(index=False).encode(),
+                       f"baselines_{label[:20]}.csv", mime="text/csv")
+    st.divider()
+
     # ── EXPORT ───────────────────────────────────────────────────────
     ce1, ce2 = st.columns(2)
     with ce1:
