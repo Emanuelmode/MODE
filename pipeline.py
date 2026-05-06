@@ -1,26 +1,26 @@
 """
 pipeline.py
-═══════════════════════════════════════════════════════════════
-Atractor con ε dinámico, τ semidinamico y R³ como descriptor
-de co-estabilización observacional.
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+Atractor con Îµ dinÃ¡mico, Ï„ semidinamico y RÂ³ como descriptor
+de co-estabilizaciÃ³n observacional.
 
-REVISIÓN 2026-05: Cálculos honestos sin inflación de precisión
-- Gradientes normalizados por RMS en lugar de máximo
-- R³ sin rounding que oculte discretización
-- Métricas adicionales para reducir colapso a 5 valores
-- Validación rigurosa de regímenes
+REVISIÃ“N 2026-05: CÃ¡lculos honestos sin inflaciÃ³n de precisiÃ³n
+- Gradientes normalizados por RMS en lugar de mÃ¡ximo
+- RÂ³ sin rounding que oculte discretizaciÃ³n
+- MÃ©tricas adicionales para reducir colapso a 5 valores
+- ValidaciÃ³n rigurosa de regÃ­menes
 
 Arquitectura:
-  H1 — ε dinámico       : adapta resolución al sistema
-  H2 — τ semidinamico   : estabiliza reconstrucción por régimen
-  H3 — R³ descriptor    : revela cuándo H1 + H2 lograron coherencia
+  H1 â€” Îµ dinÃ¡mico       : adapta resoluciÃ³n al sistema
+  H2 â€” Ï„ semidinamico   : estabiliza reconstrucciÃ³n por rÃ©gimen
+  H3 â€” RÂ³ descriptor    : revela cuÃ¡ndo H1 + H2 lograron coherencia
 
-δ calibrado desde literatura empírica (no constante teórica):
-  - Peng et al. (1995)     : HRV / fisiológico
-  - Grassberger & Procaccia (1983) : atractores clásicos
+Î´ calibrado desde literatura empÃ­rica (no constante teÃ³rica):
+  - Peng et al. (1995)     : HRV / fisiolÃ³gico
+  - Grassberger & Procaccia (1983) : atractores clÃ¡sicos
   - Mantegna & Stanley (1999)      : series financieras
-  - Schreiber (2000)               : transferencia de entropía
-═══════════════════════════════════════════════════════════════
+  - Schreiber (2000)               : transferencia de entropÃ­a
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 """
 
 import numpy as np
@@ -30,35 +30,35 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-# ═══════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # 1.  EMBEDDING DE TAKENS
-# ═══════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 def embed(x: np.ndarray, m: int, tau: int) -> np.ndarray:
     """
-    Reconstrucción del espacio de fase (Takens, 1981).
-    Y_t^(m,τ) = (y_t, y_{t-τ}, ..., y_{t-(m-1)τ})
+    ReconstrucciÃ³n del espacio de fase (Takens, 1981).
+    Y_t^(m,Ï„) = (y_t, y_{t-Ï„}, ..., y_{t-(m-1)Ï„})
     Returns: array shape (N - (m-1)*tau, m)
     """
     N = len(x)
     n = N - (m - 1) * tau
     if n <= 0:
-        raise ValueError(f"Serie demasiado corta para m={m}, τ={tau}. "
-                         f"Necesitás al menos {(m-1)*tau + 1} puntos.")
+        raise ValueError(f"Serie demasiado corta para m={m}, Ï„={tau}. "
+                         f"NecesitÃ¡s al menos {(m-1)*tau + 1} puntos.")
     Y = np.column_stack([x[i * tau: i * tau + n] for i in range(m)])
     return Y
 
 
-# ═══════════════════════════════════════════
-# 2.  H1 — ε DINÁMICO
-# ═══════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# 2.  H1 â€” Îµ DINÃMICO
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class DynamicEpsilon:
     """
-    ε(t): escala local del sistema en cada punto del embedding.
+    Îµ(t): escala local del sistema en cada punto del embedding.
     
-    Basado en la distancia media a los k vecinos más cercanos.
-    No requiere parámetros fijos: se adapta a la densidad local.
+    Basado en la distancia media a los k vecinos mÃ¡s cercanos.
+    No requiere parÃ¡metros fijos: se adapta a la densidad local.
     """
 
     def __init__(self, k_neighbors: int = 5, scale: float = 0.5):
@@ -66,30 +66,30 @@ class DynamicEpsilon:
         self.scale = scale
 
     def compute_series(self, Y: np.ndarray) -> np.ndarray:
-        """ε(t) para cada punto del embedding."""
+        """Îµ(t) para cada punto del embedding."""
         dists = cdist(Y, Y)
         np.fill_diagonal(dists, np.inf)
         knn = np.sort(dists, axis=1)[:, :self.k]
         return self.scale * np.mean(knn, axis=1)
 
     def scalar(self, Y: np.ndarray) -> float:
-        """ε escalar (mediana) para reporting."""
+        """Îµ escalar (mediana) para reporting."""
         return float(np.median(self.compute_series(Y)))
 
 
-# ═══════════════════════════════════════════
-# 3.  H2 — τ SEMIDINAMICO
-# ═══════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# 3.  H2 â€” Ï„ SEMIDINAMICO
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class SemidynamicTau:
     """
-    τ: primer mínimo de la AMI (Average Mutual Information).
+    Ï„: primer mÃ­nimo de la AMI (Average Mutual Information).
     
-    Se RECALCULA solo cuando cambia el régimen dinámico.
-    Semidinamico: estable dentro de un régimen, adaptable entre regímenes.
+    Se RECALCULA solo cuando cambia el rÃ©gimen dinÃ¡mico.
+    Semidinamico: estable dentro de un rÃ©gimen, adaptable entre regÃ­menes.
     
-    Inspirado en: Fraser & Swinney (1986) — primer mínimo de AMI
-    como criterio de independencia estadística mínima.
+    Inspirado en: Fraser & Swinney (1986) â€” primer mÃ­nimo de AMI
+    como criterio de independencia estadÃ­stica mÃ­nima.
     """
 
     def __init__(self, max_lag: int = 50, bins: int = 16):
@@ -122,7 +122,7 @@ class SemidynamicTau:
                 tau = i + 1
                 break
         else:
-            # Sin mínimo claro: usar primer cruce por debajo de 1/e del máximo
+            # Sin mÃ­nimo claro: usar primer cruce por debajo de 1/e del mÃ¡ximo
             threshold = ami_arr[0] / np.e
             for i, v in enumerate(ami_arr):
                 if v < threshold:
@@ -133,17 +133,17 @@ class SemidynamicTau:
         return tau
 
 
-# ═══════════════════════════════════════════
-# 4.  MÉTRICAS DINÁMICAS
-# ═══════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# 4.  MÃ‰TRICAS DINÃMICAS
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class Metrics:
 
-    # ── 4a. Exponente de Lyapunov (Rosenstein et al., 1993) ──────────
+    # â”€â”€ 4a. Exponente de Lyapunov (Rosenstein et al., 1993) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     @staticmethod
     def lyapunov(x: np.ndarray, tau: int, m: int = 3,
                  min_tsep: int = None, max_iter: int = 300) -> float:
-        """Mayor exponente de Lyapunov. λ > 0 → caos."""
+        """Mayor exponente de Lyapunov. Î» > 0 â†’ caos."""
         Y = embed(x, m, tau)
         N = len(Y)
         if min_tsep is None:
@@ -181,10 +181,10 @@ class Metrics:
 
         return float(np.median(divergences)) if divergences else np.nan
 
-    # ── 4b. Dimensión de Correlación (Grassberger & Procaccia, 1983) ─
+    # â”€â”€ 4b. DimensiÃ³n de CorrelaciÃ³n (Grassberger & Procaccia, 1983) â”€
     @staticmethod
     def correlation_dimension(Y: np.ndarray, n_r: int = 20) -> float:
-        """D₂: dimensión fractal del atractor."""
+        """Dâ‚‚: dimensiÃ³n fractal del atractor."""
         N = len(Y)
         if N > 1500:
             rng = np.random.default_rng(42)
@@ -212,21 +212,21 @@ class Metrics:
         slope = np.polyfit(np.log(r_vals[valid]), np.log(C_r[valid]), 1)[0]
         return float(slope)
 
-    # ── 4c. Complejidad Lempel-Ziv (Lempel & Ziv, 1976) ─────────────
+    # â”€â”€ 4c. Complejidad Lempel-Ziv (Lempel & Ziv, 1976) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     @staticmethod
     def lempel_ziv(x: np.ndarray, Y: np.ndarray = None) -> float:
         """
-        C_LZ normalizada ∈ [0, ~1]. Alta → alta complejidad.
+        C_LZ normalizada âˆˆ [0, ~1]. Alta â†’ alta complejidad.
 
-        Operación sobre el embedding Y (Opción A):
-        Se binariza la proyección PCA-1 del embedding para que LZ
-        sea sensible a τ y m, no solo a la distribución de x.
+        OperaciÃ³n sobre el embedding Y (OpciÃ³n A):
+        Se binariza la proyecciÃ³n PCA-1 del embedding para que LZ
+        sea sensible a Ï„ y m, no solo a la distribuciÃ³n de x.
         Si Y no se provee, opera sobre x directamente (fallback).
         """
         if Y is not None and Y.shape[0] > 10:
-            # Proyección al primer componente del embedding
+            # ProyecciÃ³n al primer componente del embedding
             Y_centered = Y - Y.mean(axis=0)
-            # Primera dirección de varianza máxima (sin sklearn)
+            # Primera direcciÃ³n de varianza mÃ¡xima (sin sklearn)
             cov = np.cov(Y_centered.T)
             if cov.ndim == 0:
                 proj = Y_centered[:, 0]
@@ -260,7 +260,7 @@ class Metrics:
         norm = n / (np.log2(n) + 1e-10)
         return float(np.clip(c / norm, 0, 2))
 
-    # ── 4d. Transferencia de Entropía (Schreiber, 2000) ──────────────
+    # â”€â”€ 4d. Transferencia de EntropÃ­a (Schreiber, 2000) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     @staticmethod
     def transfer_entropy(x: np.ndarray, tau: int, bins: int = 8) -> float:
         """TE del pasado al futuro: flujo informacional interno."""
@@ -279,10 +279,10 @@ class Metrics:
                     te += pxy[i,j] * np.log2(pxy[i,j] / (px[i] * py[j]))
         return float(max(0.0, te))
 
-    # ── 4e. Entropía de muestra (Sample entropy) ────────────────────
+    # â”€â”€ 4e. EntropÃ­a de muestra (Sample entropy) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     @staticmethod
     def sample_entropy(x: np.ndarray, m: int = 2, r_ratio: float = 0.2) -> float:
-        """Entropía de muestra (Richman & Moorman, 2000)."""
+        """EntropÃ­a de muestra (Richman & Moorman, 2000)."""
         try:
             N = len(x)
             r = r_ratio * np.std(x, ddof=1)
@@ -314,35 +314,35 @@ class Metrics:
         }
 
 
-# ═══════════════════════════════════════════
-# 5.  DETECTOR DE RÉGIMEN
-# ═══════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# 5.  DETECTOR DE RÃ‰GIMEN
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class RegimeDetector:
     """
-    Clasifica el régimen basado en λ y otras métricas.
-    Umbrales derivados de literatura de sistemas dinámicos.
+    Clasifica el rÃ©gimen basado en Î» y otras mÃ©tricas.
+    Umbrales derivados de literatura de sistemas dinÃ¡micos.
     
-    λ < 0        → Estable / Periódico
-    0 ≤ λ < 0.15 → Caos débil
-    0.15 ≤ λ < 0.5 → Caótico
-    λ ≥ 0.5      → Hipercaótico / Ruidoso
+    Î» < 0        â†’ Estable / PeriÃ³dico
+    0 â‰¤ Î» < 0.15 â†’ Caos dÃ©bil
+    0.15 â‰¤ Î» < 0.5 â†’ CaÃ³tico
+    Î» â‰¥ 0.5      â†’ HipercaÃ³tico / Ruidoso
     """
 
     DESCRIPTIONS = {
-        'stable':          'Estable / Periódico',
-        'weakly_chaotic':  'Caos débil / Cuasiperiódico',
-        'chaotic':         'Caótico',
-        'hyperchaotic':    'Hipercaótico / Estructurado',
-        'noisy':           'Ruido / Sin estructura dinámica',
+        'stable':          'Estable / PeriÃ³dico',
+        'weakly_chaotic':  'Caos dÃ©bil / CuasiperiÃ³dico',
+        'chaotic':         'CaÃ³tico',
+        'hyperchaotic':    'HipercaÃ³tico / Estructurado',
+        'noisy':           'Ruido / Sin estructura dinÃ¡mica',
     }
 
     def classify(self, lam: float, lz: float = None, d2: float = None) -> str:
         """
-        Clasificación multi-métrica del régimen.
-        Umbrales conservadores — mejor subestimar que sobreestimar régimen.
+        ClasificaciÃ³n multi-mÃ©trica del rÃ©gimen.
+        Umbrales conservadores â€” mejor subestimar que sobreestimar rÃ©gimen.
         """
-        # λ negativo es diagnóstico confiable de sistema estable
+        # Î» negativo es diagnÃ³stico confiable de sistema estable
         if not np.isnan(lam) and lam < 0:
             return 'stable'
 
@@ -352,16 +352,16 @@ class RegimeDetector:
             # Ruido puro: LZ muy alto + D2 muy alto
             if lz > 0.95 and d2 > 2.3:
                 return 'noisy'
-            # Hipercaótico: requiere AMBOS muy altos (umbrales estrictos)
+            # HipercaÃ³tico: requiere AMBOS muy altos (umbrales estrictos)
             if lz > 0.85 and d2 > 2.0:
                 return 'hyperchaotic'
-            # Caótico estructurado
+            # CaÃ³tico estructurado
             if lz > 0.55 and d2 > 1.6:
                 return 'chaotic'
-            # Estable / periódico: LZ y D2 bajos
+            # Estable / periÃ³dico: LZ y D2 bajos
             if lz < 0.30 and d2 < 1.2:
                 return 'stable'
-            # Todo lo demás: caos débil (Lorenz, Rössler caen acá)
+            # Todo lo demÃ¡s: caos dÃ©bil (Lorenz, RÃ¶ssler caen acÃ¡)
             return 'weakly_chaotic'
 
         # Fallback a LZ solo
@@ -371,7 +371,7 @@ class RegimeDetector:
             if lz < 0.85:  return 'chaotic'
             return 'hyperchaotic'
 
-        # Fallback a λ solo
+        # Fallback a Î» solo
         if not np.isnan(lam):
             if lam < 0.15: return 'weakly_chaotic'
             if lam < 0.50: return 'chaotic'
@@ -380,20 +380,20 @@ class RegimeDetector:
         return 'weakly_chaotic'
 
 
-# ═══════════════════════════════════════════
-# 6.  BIBLIOTECA DE δ SEMIDINAMICO
-# ═══════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# 6.  BIBLIOTECA DE Î´ SEMIDINAMICO
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class DeltaLibrary:
     """
-    δ por régimen, calibrado desde IQR empírico de literatura.
+    Î´ por rÃ©gimen, calibrado desde IQR empÃ­rico de literatura.
 
-    Régimen          δ       Fuente principal
-    ─────────────── ─────── ─────────────────────────────────────────
-    stable          0.06    Peng et al. (1995) — HRV sano vs patológico
-    weakly_chaotic  0.05    Grassberger & Procaccia (1983) — Lorenz, Rössler
-    chaotic         0.08    Mantegna & Stanley (1999) — mercados, bio transición
-    hyperchaotic    0.15    Schreiber (2000) — sistemas ruidosos de alta dim.
+    RÃ©gimen          Î´       Fuente principal
+    â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ â”€â”€â”€â”€â”€â”€â”€ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    stable          0.06    Peng et al. (1995) â€” HRV sano vs patolÃ³gico
+    weakly_chaotic  0.05    Grassberger & Procaccia (1983) â€” Lorenz, RÃ¶ssler
+    chaotic         0.08    Mantegna & Stanley (1999) â€” mercados, bio transiciÃ³n
+    hyperchaotic    0.15    Schreiber (2000) â€” sistemas ruidosos de alta dim.
     """
 
     TABLE = {
@@ -408,27 +408,27 @@ class DeltaLibrary:
         return self.TABLE.get(regime, 0.10)
 
 
-# ═══════════════════════════════════════════
-# 7.  H3 — R³ DESCRIPTOR (REVISADO)
-# ═══════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# 7.  H3 â€” RÂ³ DESCRIPTOR (REVISADO)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class R3Descriptor:
     """
-    R³_{ε,τ} ≡ región donde ∇_{ε,τ}(λ, D₂, C_LZ, TE) ≈ 0
+    RÂ³_{Îµ,Ï„} â‰¡ regiÃ³n donde âˆ‡_{Îµ,Ï„}(Î», Dâ‚‚, C_LZ, TE) â‰ˆ 0
 
-    CAMBIOS EN REVISIÓN 2026-05:
-    ──────────────────────────────
-    1. Normalización RMS en lugar de máximo → menos colapso
-    2. Sin rounding agresivo → preserva continuo
+    CAMBIOS EN REVISIÃ“N 2026-05:
+    â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    1. NormalizaciÃ³n RMS en lugar de mÃ¡ximo â†’ menos colapso
+    2. Sin rounding agresivo â†’ preserva continuo
     3. Score ponderado por estabilidad real, no binario
-    4. Métrica adicional (SampEn) → 5 observables en lugar de 4
+    4. MÃ©trica adicional (SampEn) â†’ 5 observables en lugar de 4
     
-    Descriptor de co-estabilización observacional.
-    NO es restricción — emerge del sistema, no se le impone.
+    Descriptor de co-estabilizaciÃ³n observacional.
+    NO es restricciÃ³n â€” emerge del sistema, no se le impone.
 
-    Score ∈ [0, 1]:
-      1.0 → todas las métricas co-estabilizadas (máxima coherencia)
-      0.0 → ninguna métrica estable bajo variación de τ
+    Score âˆˆ [0, 1]:
+      1.0 â†’ todas las mÃ©tricas co-estabilizadas (mÃ¡xima coherencia)
+      0.0 â†’ ninguna mÃ©trica estable bajo variaciÃ³n de Ï„
     """
 
     def __init__(self):
@@ -436,7 +436,7 @@ class R3Descriptor:
         self.delta_lib       = DeltaLibrary()
 
     def _gradients(self, x: np.ndarray, tau: int, m: int) -> tuple:
-        """Gradiente numérico de cada métrica respecto a τ."""
+        """Gradiente numÃ©rico de cada mÃ©trica respecto a Ï„."""
         base = Metrics.compute_all(x, tau, m)
 
         tau_p = max(1, tau + 1)
@@ -451,14 +451,14 @@ class R3Descriptor:
             if any(np.isnan([v0, vp, vm])):
                 grads[k] = np.nan
             else:
-                # CAMBIO: normalización RMS en lugar de máximo
+                # CAMBIO: normalizaciÃ³n RMS en lugar de mÃ¡ximo
                 denom = np.sqrt(v0**2 + vp**2 + vm**2 + 1e-12) / np.sqrt(3)
                 grads[k] = abs(vp - vm) / denom if denom > 1e-10 else abs(vp - vm)
 
         return grads, base
 
     def score(self, x: np.ndarray, tau: int, m: int = 3) -> dict:
-        """Calcula R³ completo con metadata de régimen y δ activo."""
+        """Calcula RÂ³ completo con metadata de rÃ©gimen y Î´ activo."""
         grads, metrics = self._gradients(x, tau, m)
 
         lam    = metrics.get('lambda', np.nan)
@@ -486,10 +486,10 @@ class R3Descriptor:
                     'weight':   weight,
                 }
 
-        # CAMBIO: score es promedio ponderado, no proporción binaria
+        # CAMBIO: score es promedio ponderado, no proporciÃ³n binaria
         r3_score = np.mean(stability_weights) if stability_weights else 0.0
 
-        # Fix 5: régimen noisy no puede ser coherente por definición.
+        # Fix 5: rÃ©gimen noisy no puede ser coherente por definiciÃ³n.
         regime_is_noisy = (regime == 'noisy')
         coherent = (r3_score >= 0.60) and not regime_is_noisy
 
@@ -506,13 +506,13 @@ class R3Descriptor:
         }
 
 
-# ═══════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # 8.  PIPELINE INTEGRADO
-# ═══════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class AttractorPipeline:
     """
-    Orquestador: ε dinámico + τ semidinamico + R³ descriptor.
+    Orquestador: Îµ dinÃ¡mico + Ï„ semidinamico + RÂ³ descriptor.
 
     Uso:
         pipe   = AttractorPipeline()
@@ -533,62 +533,62 @@ class AttractorPipeline:
 
     def run(self, x: np.ndarray, label: str = 'serie') -> dict:
         x = np.asarray(x, dtype=float)
-        x = (x - x.mean()) / (x.std() + 1e-12)   # normalización z-score
+        x = (x - x.mean()) / (x.std() + 1e-12)   # normalizaciÃ³n z-score
 
-        # Fix 1: τ es propio de cada señal — limpiar cache entre runs
+        # Fix 1: Ï„ es propio de cada seÃ±al â€” limpiar cache entre runs
         self._tau._cache.clear()
 
-        self._log(f"\n{'═'*52}")
-        self._log(f"  PIPELINE  ·  {label}  ·  N={len(x)}")
-        self._log(f"{'═'*52}")
+        self._log(f"\n{'â•'*52}")
+        self._log(f"  PIPELINE  Â·  {label}  Â·  N={len(x)}")
+        self._log(f"{'â•'*52}")
 
-        # ── Paso 1: τ inicial (sin régimen conocido) ─────────────────
+        # â”€â”€ Paso 1: Ï„ inicial (sin rÃ©gimen conocido) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         tau0 = self._tau.compute(x, regime='unknown')
-        self._log(f"  τ₀ (AMI, sin régimen):  {tau0}")
+        self._log(f"  Ï„â‚€ (AMI, sin rÃ©gimen):  {tau0}")
 
-        # ── Paso 2: métricas base ─────────────────────────────────────
+        # â”€â”€ Paso 2: mÃ©tricas base â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         metrics0 = Metrics.compute_all(x, tau0, self.m)
         regime0  = RegimeDetector().classify(
             metrics0['lambda'], metrics0['LZ'], metrics0['D2']
         )
-        self._log(f"  Régimen detectado:      {regime0}")
+        self._log(f"  RÃ©gimen detectado:      {regime0}")
 
-        # ── Paso 3: τ refinado por régimen ───────────────────────────
+        # â”€â”€ Paso 3: Ï„ refinado por rÃ©gimen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         tau = self._tau.compute(x, regime=regime0)
         if tau != tau0:
-            self._log(f"  τ refinado (régimen):   {tau}")
+            self._log(f"  Ï„ refinado (rÃ©gimen):   {tau}")
         else:
-            self._log(f"  τ confirmado:           {tau}")
+            self._log(f"  Ï„ confirmado:           {tau}")
 
-        # ── Paso 4: embedding ─────────────────────────────────────────
+        # â”€â”€ Paso 4: embedding â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         Y = embed(x, self.m, tau)
         self._log(f"  Embedding shape:        {Y.shape}")
 
-        # ── Paso 5: ε dinámico ────────────────────────────────────────
+        # â”€â”€ Paso 5: Îµ dinÃ¡mico â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         eps_series = self._eps.compute_series(Y)
         eps_scalar = float(np.median(eps_series))
-        self._log(f"  ε (mediana):            {eps_scalar:.5f}")
+        self._log(f"  Îµ (mediana):            {eps_scalar:.5f}")
 
-        # ── Paso 6: métricas finales ──────────────────────────────────
+        # â”€â”€ Paso 6: mÃ©tricas finales â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         metrics = Metrics.compute_all(x, tau, self.m)
-        self._log(f"\n  Métricas:")
-        self._log(f"    λ  (Lyapunov)  = {metrics['lambda']}")
-        self._log(f"    D₂ (Corr. dim) = {metrics['D2']}")
+        self._log(f"\n  MÃ©tricas:")
+        self._log(f"    Î»  (Lyapunov)  = {metrics['lambda']}")
+        self._log(f"    Dâ‚‚ (Corr. dim) = {metrics['D2']}")
         self._log(f"    LZ (Compl.)    = {metrics['LZ']}")
         self._log(f"    TE (Trans. ent)= {metrics['TE']}")
         self._log(f"    SE (Muestra)   = {metrics['SampEn']}")
 
-        # ── Paso 7: R³ descriptor ─────────────────────────────────────
+        # â”€â”€ Paso 7: RÂ³ descriptor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         r3 = self._r3.score(x, tau, self.m)
-        self._log(f"\n  R³ descriptor:")
+        self._log(f"\n  RÂ³ descriptor:")
         self._log(f"    Score          = {r3['R3_score']:.6f}")
         self._log(f"    Coherente      = {r3['coherent']}")
-        self._log(f"    Régimen        = {r3['regime_desc']}")
-        self._log(f"    δ activo       = {r3['delta']}")
+        self._log(f"    RÃ©gimen        = {r3['regime_desc']}")
+        self._log(f"    Î´ activo       = {r3['delta']}")
         for k, v in r3['stability_map'].items():
-            sym = '✔' if v['stable'] else '✘'
-            self._log(f"    {sym} {k:<8} grad={v['gradient']:.6f}  weight={v['weight']:.4f}  δ={v['delta']}")
-        self._log(f"{'═'*52}\n")
+            sym = 'âœ”' if v['stable'] else 'âœ˜'
+            self._log(f"    {sym} {k:<8} grad={v['gradient']:.6f}  weight={v['weight']:.4f}  Î´={v['delta']}")
+        self._log(f"{'â•'*52}\n")
 
         result = {
             'label':          label,
@@ -608,16 +608,16 @@ class AttractorPipeline:
         return result
 
 
-# ═══════════════════════════════════════════
-# SEÑALES DE PRUEBA (para desarrollo)
-# ═══════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# SEÃ‘ALES DE PRUEBA (para desarrollo)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 def demo_signals(N: int = 1000) -> dict:
-    """Genera señales de referencia con dinámicas conocidas."""
+    """Genera seÃ±ales de referencia con dinÃ¡micas conocidas."""
     t = np.linspace(0, 100, N)
     rng = np.random.default_rng(0)
 
-    # Lorenz (simulación aproximada vía diferencias)
+    # Lorenz (simulaciÃ³n aproximada vÃ­a diferencias)
     def lorenz_ts(n=N, sigma=10, rho=28, beta=8/3, dt=0.01):
         x, y, z = 1.0, 1.0, 1.0
         xs = []
@@ -649,7 +649,7 @@ def _logistic_map(N=1000, r=3.9):
 if __name__ == '__main__':
     pipe = AttractorPipeline(m=3, max_tau=50, verbose=True)
 
-    # Señales de prueba
+    # SeÃ±ales de prueba
     N = 800
     t = np.linspace(0, 80, N)
     rng = np.random.default_rng(42)
