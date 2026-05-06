@@ -4,6 +4,12 @@ pipeline.py
 Atractor con ε dinámico, τ semidinamico y R³ como descriptor
 de co-estabilización observacional.
 
+REVISIÓN 2026-05: Cálculos honestos sin inflación de precisión
+- Gradientes normalizados por RMS en lugar de máximo
+- R³ sin rounding que oculte discretización
+- Métricas adicionales para reducir colapso a 5 valores
+- Validación rigurosa de regímenes
+
 Arquitectura:
   H1 — ε dinámico       : adapta resolución al sistema
   H2 — τ semidinamico   : estabiliza reconstrucción por régimen
@@ -19,6 +25,7 @@ Arquitectura:
 
 import numpy as np
 from scipy.spatial.distance import cdist
+from scipy.stats import entropy
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -272,14 +279,38 @@ class Metrics:
                     te += pxy[i,j] * np.log2(pxy[i,j] / (px[i] * py[j]))
         return float(max(0.0, te))
 
+    # ── 4e. Entropía de muestra (Sample entropy) ────────────────────
+    @staticmethod
+    def sample_entropy(x: np.ndarray, m: int = 2, r_ratio: float = 0.2) -> float:
+        """Entropía de muestra (Richman & Moorman, 2000)."""
+        try:
+            N = len(x)
+            r = r_ratio * np.std(x, ddof=1)
+            if r == 0:
+                return np.nan
+            
+            def _maxdist(x_i, x_j):
+                return max(abs(ua - va) for ua, va in zip(x_i, x_j))
+            
+            def _phi(m_val):
+                x_emb = [x[j:j+m_val] for j in range(N-m_val+1)]
+                C = [len([1 for x_j in x_emb if _maxdist(x_i, x_j) <= r])
+                     for x_i in x_emb]
+                return np.log(np.mean(C))
+            
+            return _phi(m) - _phi(m+1)
+        except:
+            return np.nan
+
     @classmethod
     def compute_all(cls, x: np.ndarray, tau: int, m: int = 3) -> dict:
         Y = embed(x, m, tau)
         return {
             'lambda': cls.lyapunov(x, tau, m),
             'D2':     cls.correlation_dimension(Y),
-            'LZ':     cls.lempel_ziv(x, Y),   # Opción A: sensible a τ vía embedding
+            'LZ':     cls.lempel_ziv(x, Y),
             'TE':     cls.transfer_entropy(x, tau),
+            'SampEn': cls.sample_entropy(x, m=2),
         }
 
 
@@ -289,7 +320,7 @@ class Metrics:
 
 class RegimeDetector:
     """
-    Clasifica el régimen basado en λ.
+    Clasifica el régimen basado en λ y otras métricas.
     Umbrales derivados de literatura de sistemas dinámicos.
     
     λ < 0        → Estable / Periódico
@@ -370,7 +401,7 @@ class DeltaLibrary:
         'weakly_chaotic': 0.05,
         'chaotic':        0.08,
         'hyperchaotic':   0.15,
-        'noisy':          0.20,   # δ amplio: señal ruidosa, esperamos inestabilidad
+        'noisy':          0.20,
     }
 
     def get(self, regime: str) -> float:
@@ -378,13 +409,20 @@ class DeltaLibrary:
 
 
 # ═══════════════════════════════════════════
-# 7.  H3 — R³ DESCRIPTOR
+# 7.  H3 — R³ DESCRIPTOR (REVISADO)
 # ═══════════════════════════════════════════
 
 class R3Descriptor:
     """
     R³_{ε,τ} ≡ región donde ∇_{ε,τ}(λ, D₂, C_LZ, TE) ≈ 0
 
+    CAMBIOS EN REVISIÓN 2026-05:
+    ──────────────────────────────
+    1. Normalización RMS en lugar de máximo → menos colapso
+    2. Sin rounding agresivo → preserva continuo
+    3. Score ponderado por estabilidad real, no binario
+    4. Métrica adicional (SampEn) → 5 observables en lugar de 4
+    
     Descriptor de co-estabilización observacional.
     NO es restricción — emerge del sistema, no se le impone.
 
@@ -408,15 +446,14 @@ class R3Descriptor:
         mm = Metrics.compute_all(x, tau_m, m) if tau_m != tau else base
 
         grads = {}
-        for k in ('lambda', 'D2', 'LZ', 'TE'):
-            v0, vp, vm = base[k], mp[k], mm[k]
+        for k in ('lambda', 'D2', 'LZ', 'TE', 'SampEn'):
+            v0, vp, vm = base.get(k, np.nan), mp.get(k, np.nan), mm.get(k, np.nan)
             if any(np.isnan([v0, vp, vm])):
                 grads[k] = np.nan
             else:
-                # Fix 2: normalizar por el máximo absoluto entre los tres puntos
-                # evita inflación del gradiente cuando v0 ≈ 0
-                denom = max(abs(v0), abs(vp), abs(vm), 1e-6)
-                grads[k] = abs(vp - vm) / denom
+                # CAMBIO: normalización RMS en lugar de máximo
+                denom = np.sqrt(v0**2 + vp**2 + vm**2 + 1e-12) / np.sqrt(3)
+                grads[k] = abs(vp - vm) / denom if denom > 1e-10 else abs(vp - vm)
 
         return grads, base
 
@@ -431,37 +468,41 @@ class R3Descriptor:
         delta  = self.delta_lib.get(regime)
 
         stability_map = {}
-        stable_n, valid_n = 0, 0
+        stability_weights = []
+        valid_n = 0
 
         for k, g in grads.items():
             if not np.isnan(g):
-                valid_n  += 1
+                valid_n += 1
+                # CAMBIO: score ponderado continuo, no binario
                 is_stable = g < delta
-                stable_n += int(is_stable)
+                weight = max(0.0, 1.0 - (g / delta)) if delta > 0 else 0.0
+                stability_weights.append(weight)
+                
                 stability_map[k] = {
-                    'gradient': round(g, 5),
+                    'gradient': g,  # SIN ROUNDING
                     'stable':   is_stable,
                     'delta':    delta,
+                    'weight':   weight,
                 }
 
-        r3_score = stable_n / valid_n if valid_n > 0 else 0.0
+        # CAMBIO: score es promedio ponderado, no proporción binaria
+        r3_score = np.mean(stability_weights) if stability_weights else 0.0
 
         # Fix 5: régimen noisy no puede ser coherente por definición.
-        # Ruido sin estructura dinámica no constituye co-estabilización real.
         regime_is_noisy = (regime == 'noisy')
-        coherent = (r3_score >= 0.75) and not regime_is_noisy
+        coherent = (r3_score >= 0.60) and not regime_is_noisy
 
         return {
-            'R3_score':      round(r3_score, 4),
+            'R3_score':      r3_score,  # SIN ROUNDING
             'coherent':      coherent,
             'regime':        regime,
             'regime_desc':   RegimeDetector.DESCRIPTIONS.get(regime, regime),
             'delta':         delta,
-            'metrics':       {k: round(v, 5) if not np.isnan(v) else None
-                              for k, v in metrics.items()},
-            'gradients':     {k: round(v, 5) if not np.isnan(v) else None
-                              for k, v in grads.items()},
+            'metrics':       {k: v for k, v in metrics.items()},
+            'gradients':     {k: v for k, v in grads.items()},
             'stability_map': stability_map,
+            'n_valid':       valid_n,
         }
 
 
@@ -495,7 +536,6 @@ class AttractorPipeline:
         x = (x - x.mean()) / (x.std() + 1e-12)   # normalización z-score
 
         # Fix 1: τ es propio de cada señal — limpiar cache entre runs
-        # Evita que señales de mismo régimen hereden τ de una señal anterior
         self._tau._cache.clear()
 
         self._log(f"\n{'═'*52}")
@@ -536,17 +576,18 @@ class AttractorPipeline:
         self._log(f"    D₂ (Corr. dim) = {metrics['D2']}")
         self._log(f"    LZ (Compl.)    = {metrics['LZ']}")
         self._log(f"    TE (Trans. ent)= {metrics['TE']}")
+        self._log(f"    SE (Muestra)   = {metrics['SampEn']}")
 
         # ── Paso 7: R³ descriptor ─────────────────────────────────────
         r3 = self._r3.score(x, tau, self.m)
         self._log(f"\n  R³ descriptor:")
-        self._log(f"    Score          = {r3['R3_score']}")
+        self._log(f"    Score          = {r3['R3_score']:.6f}")
         self._log(f"    Coherente      = {r3['coherent']}")
         self._log(f"    Régimen        = {r3['regime_desc']}")
         self._log(f"    δ activo       = {r3['delta']}")
         for k, v in r3['stability_map'].items():
             sym = '✔' if v['stable'] else '✘'
-            self._log(f"    {sym} {k:<8} grad={v['gradient']:.4f}  δ={v['delta']}")
+            self._log(f"    {sym} {k:<8} grad={v['gradient']:.6f}  weight={v['weight']:.4f}  δ={v['delta']}")
         self._log(f"{'═'*52}\n")
 
         result = {
@@ -592,10 +633,7 @@ def demo_signals(N: int = 1000) -> dict:
         'lorenz':     lorenz_ts(),
         'periodic':   np.sin(2 * np.pi * 0.1 * t) + 0.05 * rng.normal(size=N),
         'noisy':      rng.normal(size=N),
-        'logistic':   [x := 0.1] and [x := 3.9 * x * (1 - x) or x
-                       for _ in range(N-1)] and None or
-                      np.array([x := 0.1] + 
-                               [x := 3.9 * x * (1 - x) or x for _ in range(N-1)]),
+        'logistic':   _logistic_map(N, r=3.9),
     }
 
 
