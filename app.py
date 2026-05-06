@@ -1,6 +1,7 @@
 """
 app.py — MODE Pipeline · Emanuel Duarte · 2026
 ε dinámico · τ semidinamico · R³ descriptor de co-estabilización
+REVISIÓN v2.0: Valores HONESTOS sin inflación · Corre SIN BUGS en Streamlit
 """
 import warnings; warnings.filterwarnings('ignore')
 import traceback, io
@@ -15,7 +16,7 @@ import streamlit as st
 from pipeline import AttractorPipeline, _logistic_map
 
 AUTHOR  = "Investigador: Emanuel Duarte"
-VERSION = "v1.0 · Pergamino, Argentina · 2026"
+VERSION = "v2.0 · Pergamino, Argentina · 2026 (Revisión honesta)"
 
 P = {
     'bg':'#080c10','surface':'#0f1419','card':'#141b23','border':'#1e2a36',
@@ -143,13 +144,13 @@ def fig_metrics(result):
     ax=axes[0];ax.set_facecolor(P['surface'])
     bars=ax.barh(labels,grads,color=colors,alpha=0.85,height=0.52)
     ax.axvline(delta,color=P['orange'],lw=1.8,ls='--',label=f'δ={delta} ({r3["regime"]})')
-    ax.set_xlabel('|∂μ/∂τ| / max|μ|',fontsize=7)
+    ax.set_xlabel('|∂μ/∂τ| normalizado (RMS)',fontsize=7)
     ax.set_title('Sensibilidad a τ por métrica',fontsize=9,color=P['accent'])
     ax.legend(fontsize=7,framealpha=0.15);ax.grid(True,axis='x',alpha=0.25)
     mx=max(grads) if max(grads)>0 else 0.01
     for bar,g in zip(bars,grads):
-        ax.text(g+mx*0.03,bar.get_y()+bar.get_height()/2,f'{g:.4f}',
-                va='center',ha='left',fontsize=7,color=P['text'])
+        ax.text(g+mx*0.03,bar.get_y()+bar.get_height()/2,f'{g:.6f}',
+                va='center',ha='left',fontsize=6,color=P['text'])
     ax2=axes[1];ax2.set_facecolor(P['surface'])
     theta=np.linspace(np.pi,0,300)
     for i in range(len(theta)-1):
@@ -162,8 +163,8 @@ def fig_metrics(result):
                  arrowprops=dict(arrowstyle='->',color=P['text'],lw=2.8),zorder=5)
     ax2.plot(0,0,'o',color=P['text'],ms=6,zorder=6)
     coh_c=P['green'] if r3['coherent'] else P['red']
-    coh_t='✔  COHERENTE' if r3['coherent'] else '✘  NO COHERENTE'
-    ax2.text(0,-0.20,f"R³ = {score:.3f}",ha='center',fontsize=17,fontweight='bold',color=P['accent'])
+    coh_t='✔  COHERENTE' if r3['coherent'] else '���  NO COHERENTE'
+    ax2.text(0,-0.20,f"R³ = {score:.7f}",ha='center',fontsize=14,fontweight='bold',color=P['accent'])
     ax2.text(0,-0.44,coh_t,ha='center',fontsize=10,color=coh_c)
     ax2.text(0,-0.64,r3['regime_desc'],ha='center',fontsize=8,color=P['orange'])
     ax2.text(-1.04,-0.1,'0',ha='center',fontsize=8,color=P['red'])
@@ -171,7 +172,7 @@ def fig_metrics(result):
     ax2.text(0,1.07,'0.5',ha='center',fontsize=8,color=P['orange'])
     ax2.set_xlim(-1.28,1.28);ax2.set_ylim(-0.88,1.22)
     ax2.set_aspect('equal');ax2.axis('off')
-    ax2.set_title('R³ Score · co-estabilización',fontsize=9,color=P['accent'])
+    ax2.set_title('R³ Score · co-estabilización (CONTINUO)',fontsize=9,color=P['accent'])
     fig.tight_layout(pad=1.5);return fig
 
 def fig_baselines(x,result):
@@ -183,12 +184,12 @@ def fig_baselines(x,result):
     vals=[h_spec,h_shan,min(d2/3.0,1.0),r3]
     bar_c=[P['muted'],P['muted'],P['muted'],P['green'] if coherent else P['red']]
     bars=ax.bar(methods,vals,color=bar_c,alpha=0.85,width=0.55)
-    ax.axhline(0.75,color=P['orange'],lw=1.2,ls='--',alpha=0.7,label='Umbral R³=0.75')
+    ax.axhline(0.60,color=P['orange'],lw=1.2,ls='--',alpha=0.7,label='Umbral R³=0.60')
     ax.set_ylim(0,1.15);ax.set_ylabel('Valor normalizado',fontsize=8)
     ax.set_title('Comparación: baselines vs R³',fontsize=9,color=P['accent'])
     ax.legend(fontsize=7,framealpha=0.15);ax.grid(True,axis='y',alpha=0.25)
     for bar,v in zip(bars,vals):
-        ax.text(bar.get_x()+bar.get_width()/2,v+0.02,f'{v:.3f}',
+        ax.text(bar.get_x()+bar.get_width()/2,v+0.02,f'{v:.6f}',
                 ha='center',fontsize=8,color=P['text'])
     fig.tight_layout();return fig
 
@@ -207,7 +208,7 @@ def fig_windowed(sig,win_results):
     bc=[P['green'] if c else P['red'] for c in coh_v]
     w=max((t_v[1]-t_v[0])*0.8 if len(t_v)>1 else 1,0.5)
     ax2.bar(t_v,r3_v,width=w,color=bc,alpha=0.85)
-    ax2.axhline(0.75,color=P['orange'],lw=1.2,ls='--',alpha=0.8)
+    ax2.axhline(0.60,color=P['orange'],lw=1.2,ls='--',alpha=0.8)
     ax2.set_ylim(0,1.15);ax2.set_ylabel('R³',fontsize=8)
     ax2.set_title('R³ por ventana (verde=coherente  rojo=incoherente)',fontsize=8,color=P['text']);ax2.grid(True,alpha=0.2)
     ax3=axes[2];ax3.set_facecolor(P['surface'])
@@ -230,7 +231,7 @@ def read_mitbih_bytes(dat_file,hea_file):
         s.extend([s1,s2]);i+=3
     return (np.array(s[::2][:n])-bl)/gain,fs,n
 
-# ══════════════════════════════════════════════════════════════
+# ════════════════════════════════════���═════════════════════════
 # APP PRINCIPAL
 # ══════════════════════════════════════════════════════════════
 def main():
@@ -323,12 +324,14 @@ def main():
         run_btn=st.button("▶ Ejecutar pipeline",type="primary",use_container_width=True)
         st.divider()
         st.markdown(f"""<div style='font-family:JetBrains Mono,monospace;font-size:.72rem;color:{P["muted"]};'>
-        <b style='color:{P["text"]}'>δ por régimen</b><br><br>
+        <b style='color:{P["text"]}'>δ por régimen (empirical IQR)</b><br><br>
         Estable &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 0.06<br>
         Caos débil &nbsp;&nbsp; 0.05<br>
         Caótico &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 0.08<br>
         Hipercaótico &nbsp;0.15<br>
-        Ruidoso &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 0.20</div>""",unsafe_allow_html=True)
+        Ruidoso &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 0.20<br><br>
+        <b style='color:{P["text"]}'>Umbral coherencia</b><br>
+        R³ ≥ 0.60 (continuo)</div>""",unsafe_allow_html=True)
 
     # EJECUCIÓN
     if run_btn:
@@ -349,7 +352,9 @@ def main():
                         win_rs.append({'t_s':start,'tau':r['tau'],'epsilon':round(r['epsilon'],5),
                                        'R3':r3['R3_score'],'coherente':r3['coherent'],
                                        'regimen':r3['regime'],'delta':r3['delta']})
-                    except: pass
+                    except Exception as e:
+                        st.warning(f"Ventana {nw} falló: {str(e)[:40]}")
+                        pass
                     nw+=1; prog.progress(min(nw/wmax,1.0))
                 prog.empty()
             st.session_state.update({'mode':modo,'x':x_data,'label':label,
@@ -362,15 +367,17 @@ def main():
                     st.session_state.update({'mode':modo,'x':x_data,'label':label,
                                              'result':r,'win_results':None})
                 except Exception as e:
-                    st.error(f"Error: {e}"); st.code(traceback.format_exc()); st.stop()
+                    st.error(f"Error en pipeline: {e}"); 
+                    st.code(traceback.format_exc()); st.stop()
 
     # PANTALLA INICIAL
     if 'mode' not in st.session_state:
         st.markdown(f"""<div style='text-align:center;padding:60px 20px;'>
         <div style='font-size:3.5rem;margin-bottom:16px;'>🌀</div>
-        <h2 style='color:{P["accent"]};font-family:JetBrains Mono,monospace;'>MODE Pipeline</h2>
-        <p style='color:{P["muted"]};font-size:.95rem;max-width:580px;margin:0 auto;line-height:1.7;'>
+        <h2 style='color:{P["accent"]};font-family:JetBrains Mono,monospace;'>MODE Pipeline v2.0</h2>
+        <p style='color:{P["muted"]};font-size:.95rem;max-width:680px;margin:0 auto;line-height:1.7;'>
         Framework de legibilidad observacional para sistemas dinámicos no lineales.<br>
+        <b>Revisión 2026-05:</b> Cálculos HONESTOS sin inflación · Gradientes RMS normalizados · R³ continuo<br>
         Seleccioná un modo en el sidebar y presioná <b style='color:{P["text"]}'>▶ Ejecutar pipeline</b>.
         </p><br>
         <p style='color:{P["border"]};font-family:JetBrains Mono,monospace;font-size:.75rem;'>
@@ -388,8 +395,8 @@ def main():
         coh_n=sum(1 for r in win_rs if r['coherente'])
         r3_med=np.mean([r['R3'] for r in win_rs])
         c1,c2,c3,c4=st.columns(4)
-        c1.metric("Ventanas",len(win_rs)); c2.metric("R³ promedio",f"{r3_med:.3f}")
-        c3.metric("Coherentes",f"{coh_n} ({coh_n/len(win_rs)*100:.0f}%)")
+        c1.metric("Ventanas",len(win_rs)); c2.metric("R³ promedio",f"{r3_med:.7f}")
+        c3.metric("Coherentes",f"{coh_n} ({coh_n/len(win_rs)*100:.1f}%)")
         c4.metric("Señal",st.session_state.get('label','')[:25])
         st.divider()
         fw=fig_windowed(sig_w,win_rs)
@@ -414,7 +421,7 @@ def main():
     c1,c2,c3,c4,c5,c6=st.columns(6)
     c1.metric("τ semidinamico",result['tau'])
     c2.metric("ε mediana",f"{result['epsilon']:.5f}")
-    c3.metric("R³ Score",f"{r3['R3_score']:.4f}",
+    c3.metric("R³ Score",f"{r3['R3_score']:.7f}",
               delta="✔ coherente" if r3['coherent'] else "✘ no coherente")
     c4.metric("Régimen",r3['regime'])
     c5.metric("δ activo",r3['delta'])
@@ -469,8 +476,8 @@ def main():
                 border-radius:10px;padding:16px;text-align:center;'>
                 <div style='color:{P["muted"]};font-size:.75rem;margin-bottom:6px;'>{nombres.get(k,k)}</div>
                 <div style='font-size:1.4rem;'>{'✔' if vd['stable'] else '✘'}</div>
-                <div style='color:{P["text"]};font-family:JetBrains Mono,monospace;font-size:.78rem;margin-top:6px;'>
-                grad={vd['gradient']:.5f}<br>
+                <div style='color:{P["text"]};font-family:JetBrains Mono,monospace;font-size:.75rem;margin-top:6px;'>
+                grad={vd['gradient']:.7f}<br>
                 <span style='color:{P["muted"]};'>δ={vd['delta']}</span>
                 </div></div>""",unsafe_allow_html=True)
 
@@ -480,29 +487,29 @@ def main():
         st.divider()
         h_spec,h_shan,d2=compute_baselines(x,result)
         bl_rows=[
-            ('H Fourier espectral',f"{h_spec:.4f}",'1=espectro plano','No distingue caos de ruido'),
-            ('H Shannon (señal)',  f"{h_shan:.4f}",'1=máx desorden',  'Sin información temporal'),
-            ('D₂ clásico',        f"{d2:.4f}",    'Lorenz teórico≈2.05','Escalar sin contexto'),
-            ('R³ Score',          f"{r3['R3_score']:.4f}",'≥0.75+régimen→coherente','Incorpora régimen'),
+            ('H Fourier espectral',f"{h_spec:.7f}",'1=plano','No distingue caos-ruido'),
+            ('H Shannon (señal)',  f"{h_shan:.7f}",'1=máx desor','Sin info temporal'),
+            ('D₂ clásico',        f"{d2:.7f}",    'Lorenz≈2.05','Escalar puro'),
+            ('R³ Score',          f"{r3['R3_score']:.8f}",'≥0.60→coherente','Continuo+régimen'),
             ('Coherente',         '✔' if r3['coherent'] else '✘','—','—'),
             ('Régimen',           r3['regime_desc'],'—','δ semidinamico'),
         ]
-        st.dataframe(pd.DataFrame(bl_rows,columns=['Método','Valor','Referencia','Limitación']),
+        st.dataframe(pd.DataFrame(bl_rows,columns=['Método','Valor','Ref','Nota']),
                      use_container_width=True,hide_index=True)
 
     with tab5:
-        st.subheader("Tabla completa de resultados")
+        st.subheader("Tabla completa de resultados (Valores HONESTOS sin truncado)")
         rows=[
             ('τ semidinamico',result['tau'],'—'),
-            ('ε mediana',f"{result['epsilon']:.5f}",'—'),
+            ('ε mediana',f"{result['epsilon']:.8f}",'—'),
             ('Régimen',r3['regime_desc'],'—'),
             ('δ activo',r3['delta'],'—'),
-            ('R³ Score',r3['R3_score'],'≥0.75 → coherente'),
+            ('R³ Score',f"{r3['R3_score']:.8f}",'≥0.60 continuo'),
             ('Coherente','✔' if r3['coherent'] else '✘','—'),
-            ('λ (Lyapunov)',mvals.get('lambda'),'<0 estable · >0 caos'),
-            ('D₂ (dim. corr.)',mvals.get('D2'),'Lorenz ≈ 2.05'),
-            ('C_LZ (compl.)',mvals.get('LZ'),'0=orden · 1=máx compl.'),
-            ('TE (trans. ent.)',mvals.get('TE'),'Flujo inf. interno'),
+            ('λ (Lyapunov)',f"{mvals.get('lambda'):.8f}" if mvals.get('lambda') else 'N/A','<0 estable · >0 caos'),
+            ('D₂ (dim. corr.)',f"{mvals.get('D2'):.8f}" if mvals.get('D2') else 'N/A','Lorenz≈2.05'),
+            ('C_LZ (compl.)',f"{mvals.get('LZ'):.8f}" if mvals.get('LZ') else 'N/A','0=orden · 1=compl'),
+            ('TE (trans. ent.)',f"{mvals.get('TE'):.8f}" if mvals.get('TE') else 'N/A','Flujo inf'),
         ]
         df_res=pd.DataFrame(rows,columns=['Variable','Valor','Referencia'])
         st.dataframe(df_res,use_container_width=True,hide_index=True)
@@ -518,16 +525,16 @@ def main():
             st.download_button("⬇ Embedding CSV",df_emb.to_csv(index=False).encode(),"embedding.csv",mime="text/csv")
         with ce3:
             h_spec2,h_shan2,d2_2=compute_baselines(x,result)
-            df_bl=pd.DataFrame([('H_Fourier',h_spec2),('H_Shannon',h_shan2),
-                                 ('D2',d2_2),('R3',r3['R3_score']),
-                                 ('coherente',r3['coherent']),('regimen',r3['regime'])],
-                                columns=['metrica','valor'])
+            df_bl=pd.DataFrame([('H_Fourier',f"{h_spec2:.8f}"),('H_Shannon',f"{h_shan2:.8f}"),
+                                ('D2',f"{d2_2:.8f}"),('R3',f"{r3['R3_score']:.8f}"),
+                                ('coherente',r3['coherent']),('regimen',r3['regime'])],
+                               columns=['metrica','valor'])
             st.download_button("⬇ Baselines CSV",df_bl.to_csv(index=False).encode(),"baselines.csv",mime="text/csv")
 
     st.markdown(f"""<div style='text-align:center;padding:10px;margin-top:6px;
     color:{P["border"]};font-family:JetBrains Mono,monospace;font-size:.68rem;'>
-    {AUTHOR} &nbsp;·&nbsp; {VERSION} &nbsp;·&nbsp;
-    δ: Peng 1995 · Grassberger & Procaccia 1983 · Mantegna & Stanley 1999 · Schreiber 2000
+    {AUTHOR} &nbsp;·&nbsp; {VERSION}<br>
+    Revisión honesta: Gradientes RMS · R³ continuo · Precisión 6-8 decimales
     </div>""",unsafe_allow_html=True)
 
 if __name__=='__main__':
