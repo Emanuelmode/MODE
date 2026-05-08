@@ -1,2 +1,13 @@
 [server]
-fileWatcherType = "poll"
+fileWatcherType = "auto"
+runOnSave = true
+maxUploadSize = 512
+enableCORS = true
+enableXsrfProtection = true
+
+[theme]
+base = "dark"
+primaryColor = "#4aa9ff"
+backgroundColor = "#0b0f14"
+secondaryBackgroundColor = "#111821"
+textColor = "#d7e0ea"
