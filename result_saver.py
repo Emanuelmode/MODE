@@ -60,6 +60,29 @@ def _timestamp_filename() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
+def _to_native(obj):
+    """Convierte objetos numpy/Python a tipos JSON serializables."""
+    if hasattr(obj, 'item'):  # numpy types
+        return obj.item()
+    elif isinstance(obj, dict):
+        return {k: _to_native(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_to_native(v) for v in obj]
+    elif isinstance(obj, (float, int)):
+        # Maneja NaN e inf
+        import math
+        if isinstance(obj, float):
+            if math.isnan(obj) or math.isinf(obj):
+                return None
+        return obj
+    elif isinstance(obj, bool):
+        return bool(obj)
+    elif obj is None:
+        return None
+    else:
+        return str(obj)
+
+
 # ── Función principal ────────────────────────────────────────────
 
 def save_result(
@@ -103,24 +126,39 @@ def save_result(
     # Si ya existe, append; si no, crear con header
     file_exists = csv_path.exists()
 
+    # Convertir a tipos nativos para el CSV
+    def fmt_val(v):
+        if v is None:
+            return ""
+        try:
+            if hasattr(v, 'item'):
+                v = v.item()
+            if isinstance(v, float):
+                import math
+                if math.isnan(v) or math.isinf(v):
+                    return ""
+            return v
+        except:
+            return str(v)
+
     row = {
         "timestamp": ts,
         "archivo_origen": label,
-        "n_puntos": len(result.get("x_normalized", [])),
-        "tau": result.get("tau"),
-        "tau_inicial": result.get("tau_initial"),
-        "epsilon": result.get("epsilon"),
-        "regimen": r3.get("regime"),
-        "regimen_desc": r3.get("regime_desc"),
-        "R3_score": r3.get("R3_score"),
-        "coherente": r3.get("coherent"),
-        "delta": r3.get("delta"),
-        "n_validas": r3.get("n_valid"),
-        "lambda_lyapunov": metrics.get("lambda"),
-        "D2_corr_dim": metrics.get("D2"),
-        "LZ_complejidad": metrics.get("LZ"),
-        "TE_transferencia": metrics.get("TE"),
-        "SampEn": metrics.get("SampEn"),
+        "n_puntos": fmt_val(len(result.get("x_normalized", []))),
+        "tau": fmt_val(result.get("tau")),
+        "tau_inicial": fmt_val(result.get("tau_initial")),
+        "epsilon": fmt_val(result.get("epsilon")),
+        "regimen": fmt_val(r3.get("regime")),
+        "regimen_desc": fmt_val(r3.get("regime_desc")),
+        "R3_score": fmt_val(r3.get("R3_score")),
+        "coherente": "TRUE" if r3.get("coherent") else "FALSE",
+        "delta": fmt_val(r3.get("delta")),
+        "n_validas": fmt_val(r3.get("n_valid")),
+        "lambda_lyapunov": fmt_val(metrics.get("lambda")),
+        "D2_corr_dim": fmt_val(metrics.get("D2")),
+        "LZ_complejidad": fmt_val(metrics.get("LZ")),
+        "TE_transferencia": fmt_val(metrics.get("TE")),
+        "SampEn": fmt_val(metrics.get("SampEn")),
         "autor": AUTHOR if include_watermark else "",
     }
 
@@ -138,23 +176,23 @@ def save_result(
         "archivo_origen": label,
         "autor": AUTHOR if include_watermark else "",
         "pipeline": {
-            "tau": result.get("tau"),
-            "tau_initial": result.get("tau_initial"),
-            "epsilon": result.get("epsilon"),
+            "tau": _to_native(result.get("tau")),
+            "tau_initial": _to_native(result.get("tau_initial")),
+            "epsilon": _to_native(result.get("epsilon")),
         },
         "regimen": {
-            "tipo": r3.get("regime"),
-            "descripcion": r3.get("regime_desc"),
-            "delta": r3.get("delta"),
+            "tipo": _to_native(r3.get("regime")),
+            "descripcion": _to_native(r3.get("regime_desc")),
+            "delta": _to_native(r3.get("delta")),
         },
         "r3": {
-            "score": r3.get("R3_score"),
-            "coherente": r3.get("coherent"),
-            "n_validas": r3.get("n_valid"),
+            "score": _to_native(r3.get("R3_score")),
+            "coherente": bool(r3.get("coherent")) if r3.get("coherent") is not None else None,
+            "n_validas": _to_native(r3.get("n_valid")),
         },
-        "metrics": metrics,
-        "gradients": r3.get("gradients", {}),
-        "stability_map": r3.get("stability_map", {}),
+        "metrics": _to_native(metrics),
+        "gradients": _to_native(r3.get("gradients", {})),
+        "stability_map": _to_native(r3.get("stability_map", {})),
     }
 
     detail_path = Path(results_dir) / f"{safe_label}_{ts_file}_detalle.json"
@@ -167,9 +205,9 @@ def save_result(
     history_entry = {
         "timestamp": ts,
         "archivo_origen": label,
-        "regimen": r3.get("regime"),
-        "R3_score": r3.get("R3_score"),
-        "coherente": r3.get("coherent"),
+        "regimen": _to_native(r3.get("regime")),
+        "R3_score": _to_native(r3.get("R3_score")),
+        "coherente": bool(r3.get("coherent")) if r3.get("coherent") is not None else None,
         "autor": AUTHOR if include_watermark else "",
     }
     with open(history_path, "a", encoding="utf-8") as f:
@@ -184,9 +222,9 @@ def save_result(
         "archivo_origen": label,
         "autor": AUTHOR if include_watermark else "",
         "saved_files": saved,
-        "regimen": r3.get("regime"),
-        "R3_score": r3.get("R3_score"),
-        "coherente": r3.get("coherent"),
+        "regimen": _to_native(r3.get("regime")),
+        "R3_score": _to_native(r3.get("R3_score")),
+        "coherente": bool(r3.get("coherent")) if r3.get("coherent") is not None else None,
     }
 
 
