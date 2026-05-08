@@ -1,7 +1,7 @@
 """
 app.py — MODE Attractor Pipeline
 Autor: Emanuel Duarte — Pergamino, Argentina — 2026
-Versión: v2.1 | Calibración final weakly_chaotic
+Versión: v2.2 | Con autosave integrado
 Streamlit 1.57 compatible · Arrow-safe · inotify-safe
 """
 
@@ -25,9 +25,16 @@ except ImportError as _ie:
     st.error(f"❌ No se pudo importar pipeline.py: {_ie}")
     st.stop()
 
+# ── Import del autosave ──────────────────────────────────────────
+try:
+    from result_saver import save_result
+    AUTOSAVE_ENABLED = True
+except ImportError:
+    AUTOSAVE_ENABLED = False
+
 # ── Constantes ───────────────────────────────────────────────────
-AUTHOR  = "Investigador Emanuel Duarte"
-VERSION = "v2.1"
+AUTHOR  = "Investigador/dueño intelectual Emanuel Duarte"
+VERSION = "v2.2"
 
 P = dict(
     bg       = "#080c10",
@@ -363,7 +370,7 @@ def main():
                 try:
                     sigfull, fsecg, _ = read_mitbih_bytes(updat, uphea)
                     xdata = sigfull[int(ecgstart*fsecg): int((ecgstart+ecgdur)*fsecg)]
-                    label = f"ECG t={ecgstart}-{ecgstart+ecgdur}s"
+                    label = f"ECG_t{ecgstart}-{ecgstart+ecgdur}s_{updat.name}"
                     extra = {"fs": fsecg}
                 except Exception as e:
                     st.error(f"Error leyendo ECG: {e}")
@@ -388,6 +395,11 @@ def main():
 
         st.divider()
         run_btn = st.button("⚡ Ejecutar pipeline", type="primary", use_container_width=True)
+        st.divider()
+        if AUTOSAVE_ENABLED:
+            st.success("✅ Autosave activo")
+        else:
+            st.warning("⚠ Autosave deshabilitado")
         st.divider()
         st.markdown(f"""<div style="font-family:'JetBrains Mono',monospace;font-size:.72rem;color:{P["muted"]}">
         <b style="color:{P["text"]}">δ por régimen</b><br><br>
@@ -418,6 +430,10 @@ def main():
                     if w.std() < 1e-6: continue
                     try:
                         r   = pipe.run(w, label=f"w{nw}")
+                        # ── AUTOSAVE VENTANAS ─────────────────────────────
+                        if AUTOSAVE_ENABLED:
+                            save_result(r, label=f"{label}_win{nw}", results_dir="resultados_autosave")
+                        # ────────────────────────────────────────────────
                         r3  = r["R3"]
                         winrs.append({
                             "ts":        int(start),
@@ -440,8 +456,12 @@ def main():
                 try:
                     pipe = AttractorPipeline(m=mdim, max_tau=maxtau, verbose=False)
                     r    = pipe.run(xdata, label=label)
+                    # ── AUTOSAVE ─────────────────────────────────────────
+                    if AUTOSAVE_ENABLED:
+                        save_result(r, label=label, results_dir="resultados_autosave")
+                    # ─────────────────────────────────────────────────
                     st.session_state.update(mode=modo, x=xdata, label=label,
-                                            result=r, win_results=None)
+                                           result=r, win_results=None)
                 except Exception as e:
                     st.error(f"Error en pipeline: {e}")
                     st.code(traceback.format_exc()); st.stop()
