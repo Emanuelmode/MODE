@@ -262,50 +262,27 @@ class Metrics:
                     te += pxy[i,j] * np.log2(pxy[i,j] / (px[i] * py[j]))
         return float(max(0.0, te))
 
-# ── 4e. Entropía de muestra (Richman & Moorman, 2000) ────────────
+    # ── 4e. Entropía de muestra (Richman & Moorman, 2000) ────────────
     @staticmethod
-    def sample_entropy(x: np.ndarray, Y: np.ndarray = None,
-                       m: int = 2, r_ratio: float = 0.2) -> float:
-        """
-        Entropía de muestra tau-sensible.
-        Opera sobre proyección PCA-1 del embedding.
-        tau cambia Y → cambia proyección → cambia r → cambia SampEn.
-        """
+    def sample_entropy(x: np.ndarray, m: int = 2, r_ratio: float = 0.2) -> float:
+        """Entropía de muestra."""
         try:
-            if Y is not None and Y.shape[0] > 10 and Y.shape[1] > 1:
-                Yc  = Y - Y.mean(axis=0)
-                cov = np.cov(Yc.T)
-                if cov.ndim == 0:
-                    seq = Yc[:, 0]
-                else:
-                    eigvals, eigvecs = np.linalg.eigh(cov)
-                    seq = Yc @ eigvecs[:, -1]
-            else:
-                seq = x
-
-            N   = len(seq)
-            std = np.std(seq, ddof=1)
-            if N < 10 or std < 1e-8:
+            N = len(x)
+            r = r_ratio * np.std(x, ddof=1)
+            if r == 0:
                 return np.nan
 
-            r = r_ratio * std
+            def _maxdist(x_i, x_j):
+                return max(abs(ua - va) for ua, va in zip(x_i, x_j))
 
-            def _maxdist(a, b):
-                return max(abs(u - v) for u, v in zip(a, b))
+            def _phi(m_val):
+                x_emb = [x[j:j+m_val] for j in range(N-m_val+1)]
+                C = [len([1 for x_j in x_emb if _maxdist(x_i, x_j) <= r])
+                     for x_i in x_emb]
+                return np.log(np.mean(C))
 
-            def _phi(mv):
-                xe = [seq[j:j+mv] for j in range(N - mv + 1)]
-                C  = [len([1 for xj in xe if _maxdist(xi, xj) <= r])
-                      for xi in xe]
-                mc = np.mean(C)
-                return np.log(mc) if mc > 0 else np.nan
-
-            pm, pm1 = _phi(m), _phi(m + 1)
-            if pm is None or pm1 is None or np.isnan(pm) or np.isnan(pm1):
-                return np.nan
-            return float(pm - pm1)
-
-        except Exception:
+            return _phi(m) - _phi(m+1)
+        except:
             return np.nan
 
     @classmethod
@@ -316,7 +293,7 @@ class Metrics:
             'D2':     cls.correlation_dimension(Y),
             'LZ':     cls.lempel_ziv(x, Y),
             'TE':     cls.transfer_entropy(x, tau),
-            'SampEn': cls.sample_entropy(x, Y=Y, m=2),
+            'SampEn': cls.sample_entropy(x, m=2),
         }
 
 # ═══════════════════════════════════════════
@@ -405,15 +382,9 @@ class DeltaLibrary:
         'noisy':          0.20,
     }
 
-    def get(self, regime: str) -> dict:
-        try:
-            from r3_delta_library import DELTA_LIBRARY
-            if regime in DELTA_LIBRARY:
-                return DELTA_LIBRARY[regime]
-        except Exception:
-            pass
-        scalar = self.TABLE.get(regime, 0.10)
-        return {k: scalar for k in ('lambda','D2','LZ','TE','SampEn')}
+    def get(self, regime: str) -> float:
+        return self.TABLE.get(regime, 0.10)
+
 # ═══════════════════════════════════════════
 # 7. H3 — R³ DESCRIPTOR
 # ═══════════════════════════════════════════
@@ -462,7 +433,7 @@ class R3Descriptor:
 
         return grads, base
 
-        def score(self, x: np.ndarray, tau: int, m: int = 3) -> dict:
+    def score(self, x: np.ndarray, tau: int, m: int = 3) -> dict:
         """Calcula R³ completo con metadata de régimen y δ activo."""
         grads, metrics = self._gradients(x, tau, m)
 
@@ -476,17 +447,17 @@ class R3Descriptor:
         stability_weights = []
         valid_n = 0
 
+        # --- FIX LÍNEA 482 ---
         for k, g in grads.items():
             if not np.isnan(g):
                 valid_n += 1
-              delta_k   = float(delta_map.get(k, 0.10)) if isinstance(delta_map, dict) else float(delta_map)
-                is_stable = g < delta_k
-                weight    = max(0.0, 1.0 - (g / delta_k)) if delta_k > 0 else 0.0
+                is_stable = g < delta
+                weight = max(0.0, 1.0 - (g / delta)) if delta > 0 else 0.0
                 stability_weights.append(weight)
                 stability_map[k] = {
                     'gradient': g,
                     'stable':   is_stable,
-                    'delta':    delta k,
+                    'delta':    delta,
                     'weight':   weight,
                 }
 
@@ -500,7 +471,7 @@ class R3Descriptor:
             'coherent':     coherent,
             'regime':       regime,
             'regime_desc':  RegimeDetector.DESCRIPTIONS.get(regime, regime),
-            'delta':        delta_map,
+            'delta':        delta,
             'metrics':      {k: v for k, v in metrics.items()},
             'gradients':    {k: v for k, v in grads.items()},
             'stability_map': stability_map,
