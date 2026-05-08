@@ -299,7 +299,8 @@ def read_mitbih_bytes(datfile, heafile):
         s1 = b0 | ((b1 & 0x0F) << 8); s1 = s1 - 4096 if s1 >= 2048 else s1
         s2 = b2 | ((b1 & 0xF0) << 4); s2 = s2 - 4096 if s2 >= 2048 else s2
         s.extend([s1, s2]); i += 3
-    return np.array(s[:n] - bl, dtype=float) / gain, fs, n
+    s_arr = np.array(s[:n], dtype=float)
+return s_arr - bl / gain, fs, n
 
 # ── Main ─────────────────────────────────────────────────────────
 def main():
