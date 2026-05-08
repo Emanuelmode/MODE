@@ -405,9 +405,15 @@ class DeltaLibrary:
         'noisy':          0.20,
     }
 
-    def get(self, regime: str) -> float:
-        return self.TABLE.get(regime, 0.10)
-
+    def get(self, regime: str) -> dict:
+        try:
+            from r3_delta_library import DELTA_LIBRARY
+            if regime in DELTA_LIBRARY:
+                return DELTA_LIBRARY[regime]
+        except Exception:
+            pass
+        scalar = self.TABLE.get(regime, 0.10)
+        return {k: scalar for k in ('lambda','D2','LZ','TE','SampEn')}
 # ═══════════════════════════════════════════
 # 7. H3 — R³ DESCRIPTOR
 # ═══════════════════════════════════════════
@@ -479,7 +485,7 @@ class R3Descriptor:
                 stability_map[k] = {
                     'gradient': g,
                     'stable':   is_stable,
-                    'delta':    delta,
+                    'delta':    delta k,
                     'weight':   weight,
                 }
 
@@ -493,7 +499,7 @@ class R3Descriptor:
             'coherent':     coherent,
             'regime':       regime,
             'regime_desc':  RegimeDetector.DESCRIPTIONS.get(regime, regime),
-            'delta':        delta,
+            'delta':        delta_map,
             'metrics':      {k: v for k, v in metrics.items()},
             'gradients':    {k: v for k, v in grads.items()},
             'stability_map': stability_map,
