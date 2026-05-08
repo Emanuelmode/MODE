@@ -462,7 +462,7 @@ class R3Descriptor:
 
         return grads, base
 
-    def score(self, x: np.ndarray, tau: int, m: int = 3) -> dict:
+        def score(self, x: np.ndarray, tau: int, m: int = 3) -> dict:
         """Calcula R³ completo con metadata de régimen y δ activo."""
         grads, metrics = self._gradients(x, tau, m)
 
