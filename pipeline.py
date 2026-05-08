@@ -479,8 +479,9 @@ class R3Descriptor:
         for k, g in grads.items():
             if not np.isnan(g):
                 valid_n += 1
-                is_stable = g < delta
-                weight = max(0.0, 1.0 - (g / delta)) if delta > 0 else 0.0
+              delta_k   = float(delta_map.get(k, 0.10)) if isinstance(delta_map, dict) else float(delta_map)
+                is_stable = g < delta_k
+                weight    = max(0.0, 1.0 - (g / delta_k)) if delta_k > 0 else 0.0
                 stability_weights.append(weight)
                 stability_map[k] = {
                     'gradient': g,
