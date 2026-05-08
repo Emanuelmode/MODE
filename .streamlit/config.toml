@@ -1,3 +1,14 @@
 [server]
 fileWatcherType = "none"
 runOnSave = false
+headless = true
+enableCORS = true
+enableXsrfProtection = true
+maxUploadSize = 200
+
+[client]
+showErrorDetails = false
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
