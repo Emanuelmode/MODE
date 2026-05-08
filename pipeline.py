@@ -262,27 +262,50 @@ class Metrics:
                     te += pxy[i,j] * np.log2(pxy[i,j] / (px[i] * py[j]))
         return float(max(0.0, te))
 
-    # ── 4e. Entropía de muestra (Richman & Moorman, 2000) ────────────
+# ── 4e. Entropía de muestra (Richman & Moorman, 2000) ────────────
     @staticmethod
-    def sample_entropy(x: np.ndarray, m: int = 2, r_ratio: float = 0.2) -> float:
-        """Entropía de muestra."""
+    def sample_entropy(x: np.ndarray, Y: np.ndarray = None,
+                       m: int = 2, r_ratio: float = 0.2) -> float:
+        """
+        Entropía de muestra tau-sensible.
+        Opera sobre proyección PCA-1 del embedding.
+        tau cambia Y → cambia proyección → cambia r → cambia SampEn.
+        """
         try:
-            N = len(x)
-            r = r_ratio * np.std(x, ddof=1)
-            if r == 0:
+            if Y is not None and Y.shape[0] > 10 and Y.shape[1] > 1:
+                Yc  = Y - Y.mean(axis=0)
+                cov = np.cov(Yc.T)
+                if cov.ndim == 0:
+                    seq = Yc[:, 0]
+                else:
+                    eigvals, eigvecs = np.linalg.eigh(cov)
+                    seq = Yc @ eigvecs[:, -1]
+            else:
+                seq = x
+
+            N   = len(seq)
+            std = np.std(seq, ddof=1)
+            if N < 10 or std < 1e-8:
                 return np.nan
 
-            def _maxdist(x_i, x_j):
-                return max(abs(ua - va) for ua, va in zip(x_i, x_j))
+            r = r_ratio * std
 
-            def _phi(m_val):
-                x_emb = [x[j:j+m_val] for j in range(N-m_val+1)]
-                C = [len([1 for x_j in x_emb if _maxdist(x_i, x_j) <= r])
-                     for x_i in x_emb]
-                return np.log(np.mean(C))
+            def _maxdist(a, b):
+                return max(abs(u - v) for u, v in zip(a, b))
 
-            return _phi(m) - _phi(m+1)
-        except:
+            def _phi(mv):
+                xe = [seq[j:j+mv] for j in range(N - mv + 1)]
+                C  = [len([1 for xj in xe if _maxdist(xi, xj) <= r])
+                      for xi in xe]
+                mc = np.mean(C)
+                return np.log(mc) if mc > 0 else np.nan
+
+            pm, pm1 = _phi(m), _phi(m + 1)
+            if pm is None or pm1 is None or np.isnan(pm) or np.isnan(pm1):
+                return np.nan
+            return float(pm - pm1)
+
+        except Exception:
             return np.nan
 
     @classmethod
@@ -293,7 +316,7 @@ class Metrics:
             'D2':     cls.correlation_dimension(Y),
             'LZ':     cls.lempel_ziv(x, Y),
             'TE':     cls.transfer_entropy(x, tau),
-            'SampEn': cls.sample_entropy(x, m=2),
+            'SampEn': cls.sample_entropy(x, Y=Y, m=2),
         }
 
 # ═══════════════════════════════════════════
