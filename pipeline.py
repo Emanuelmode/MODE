@@ -106,12 +106,11 @@ class SampEnAdaptor:
     Elimina umbrales binarios → usa funciones suaves de pertenencia.
     """
     CONFIG = {
-        'stable':         {'m': 2, 'r_ratio': 0.15, 'mu': 0.05, 'sigma': 0.04},
-        'weakly_chaotic': {'m': 2, 'r_ratio': 0.20, 'mu': 0.18, 'sigma': 0.08},
-        'chaotic':        {'m': 2, 'r_ratio': 0.25, 'mu': 0.45, 'sigma': 0.15},
-        'hyperchaotic':   {'m': 2, 'r_ratio': 0.30, 'mu': 0.70, 'sigma': 0.20},
-        'noisy':          {'m': 2, 'r_ratio': 0.35, 'mu': 1.00, 'sigma': 0.30},
-    }
+       'stable':         {'m': 2, 'r_ratio': 0.15, 'mu': 0.02,  'sigma': 0.015},
+        'weakly_chaotic': {'m': 2, 'r_ratio': 0.20, 'mu': 0.57,  'sigma': 0.12},
+        'chaotic':        {'m': 2, 'r_ratio': 0.25, 'mu': 0.53,  'sigma': 0.10},
+        'hyperchaotic':   {'m': 2, 'r_ratio': 0.30, 'mu': 1.51,  'sigma': 0.30},
+        'noisy':          {'m': 2, 'r_ratio': 0.35, 'mu': 1.65,  'sigma': 0.35},    }
     
     @classmethod
     def get(cls, regime: str) -> dict:
