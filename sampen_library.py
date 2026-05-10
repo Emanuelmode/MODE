@@ -17,7 +17,7 @@ Propósito:
 """
 import numpy as np
 from typing import Dict, Tuple
-
+import warnings
 # ── METADATA & VERSIONADO ─────────────────────────────────────
 SAMPEN_VERSION = "2026.05a"
 SAMPEN_SOURCE  = "p80_gradient_RMS + compatibilidad_R3_empirica"
