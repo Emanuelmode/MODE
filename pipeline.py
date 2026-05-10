@@ -80,11 +80,11 @@ class SemidynamicTau:
 # ── NEW: ADAPTADOR DE SAMPEN POR RÉGIMEN ─────────────────────
 class SampEnAdaptor:
     CONFIG = {
-        'stable':         {'m': 2, 'r_ratio': 0.15, 'mu': 0.02,  'sigma': 0.015},
-        'weakly_chaotic': {'m': 2, 'r_ratio': 0.20, 'mu': 0.57,  'sigma': 0.12},
-        'chaotic':        {'m': 2, 'r_ratio': 0.25, 'mu': 0.53,  'sigma': 0.10},
-        'hyperchaotic':   {'m': 2, 'r_ratio': 0.30, 'mu': 1.51,  'sigma': 0.30},
-        'noisy':          {'m': 2, 'r_ratio': 0.35, 'mu': 1.65,  'sigma': 0.35},
+        'stable':         {'m': 2, 'r_ratio': 0.15, 'mu': 0.018, 'sigma': 0.015},
+        'weakly_chaotic': {'m': 2, 'r_ratio': 0.20, 'mu': 0.020, 'sigma': 0.018},
+        'chaotic':        {'m': 2, 'r_ratio': 0.25, 'mu': 0.017, 'sigma': 0.015},
+        'hyperchaotic':   {'m': 2, 'r_ratio': 0.30, 'mu': 0.016, 'sigma': 0.015},
+        'noisy':          {'m': 2, 'r_ratio': 0.35, 'mu': 0.019, 'sigma': 0.018},
     }
 
     @classmethod
