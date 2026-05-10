@@ -267,17 +267,30 @@ class R3Descriptor:
         delta_dict = self.delta_lib.get(regime)
 
         stability_map, stability_weights = {}, []
-        for k, g in grads.items():
-            if not np.isnan(g):
-                delta_k = delta_dict.get(k, 0.1)  # δ específico por métrica
-                w_stab = max(0.0, 1.0 - (g / delta_k)) if delta_k > 1e-12 else 0.0
-                w_compat = sampen_weight(metrics['SampEn'], regime) if k == 'SampEn' else 1.0
+            for k, g in grads.items():
+        if not np.isnan(g):
+            valid_n += 1
+            # 🔑 FIX: Extraer el delta específico para CADA métrica
+            delta_k = delta.get(k, 0.1)  # ← Ahora delta_k es un float
+            is_stable = g < delta_k
+            w_stab = max(0.0, 1.0 - (g / delta_k)) if delta_k > 1e-12 else 0.0
+            
+            # Modulación contextual solo para SampEn
+            w_compat = 1.0
+            if k == 'SampEn':
+                w_compat = SampEnAdaptor.compatibility_weight(metrics['SampEn'], regime)
                 weight = w_stab * w_compat
-                stability_weights.append(weight)
-                stability_map[k] = {
-                    'gradient': g, 'stable': g < delta_k, 'delta': delta_k,
-                    'weight': weight, 'w_compat': w_compat
-                }
+            else:
+                weight = w_stab
+                
+            stability_weights.append(weight)
+            stability_map[k] = {
+                'gradient': g, 
+                'stable': is_stable, 
+                'delta': delta_k,  # ← Guardar el delta correcto por métrica
+                'weight': weight,
+                'w_compat': w_compat
+            }
 
         valid_n = len(stability_weights)
         if valid_n < 2:
