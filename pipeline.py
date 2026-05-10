@@ -3,7 +3,7 @@ pipeline.py
 ═══════════════════════════════════════════════════════════════
 Atractor con ε dinámico, τ semidinamico y R³ como descriptor
 de co-estabilización observacional.
-REVISIÓN 2026-05d: Calibración fina + δ por métrica + SampEn robusto
+REVISIÓN 2026-05e: Fix NameError SampEnAdaptor + integración limpia
 ═══════════════════════════════════════════════════════════════
 """
 import numpy as np
@@ -11,19 +11,13 @@ from scipy.spatial.distance import cdist
 import warnings
 warnings.filterwarnings('ignore')
 
-# ── IMPORTS EXTERNOS DE CALIBRACIÓN (ÚNICO BLOQUE) ───────────
+# ── IMPORTS EXTERNOS DE CALIBRACIÓN (BLINDADOS) ──────────────
 try:
     from sampen_library import SAMPEN_CONFIG, compute as compute_sampen, compatibility_weight as sampen_weight
-    from r3_delta_library  import DELTA_LIBRARY
-    from reference_library import check_in_range, REF_VERSION, get_thresholds
-    _REF_AVAILABLE = True
-except ImportError as _ie:
-    # Fallback seguro para entornos sin las librerías externas
-    print(f"⚠ Fallback calibración: {_ie}")
-    _REF_AVAILABLE = False
-    check_in_range = lambda metric, value, regime: (True, "OK")
-    REF_VERSION    = "fallback"
-    get_thresholds = lambda regime: {}
+    from r3_delta_library import DELTA_LIBRARY
+except ImportError:
+    # Fallback total si las librerías no existen en el entorno
+    print("⚠ Usando calibración fallback (sampen_library/r3_delta_library no encontrados)")
     SAMPEN_CONFIG = {
         'stable': {'m': 2, 'r_ratio': 0.15, 'mu': 0.02, 'sigma': 0.015},
         'weakly_chaotic': {'m': 2, 'r_ratio': 0.20, 'mu': 0.57, 'sigma': 0.12},
@@ -44,11 +38,10 @@ except ImportError as _ie:
 
 # ── 1. EMBEDDING DE TAKENS ────────────────────────────────────
 def embed(x: np.ndarray, m: int, tau: int) -> np.ndarray:
-    """Reconstrucción del espacio de fase (Takens, 1981)."""
     N = len(x)
     n = N - (m - 1) * tau
     if n <= 0:
-        raise ValueError(f"Serie demasiado corta para m={m}, τ={tau}. Necesitás al menos {(m-1)*tau + 1} puntos.")
+        raise ValueError(f"Serie demasiado corta para m={m}, τ={tau}.")
     return np.column_stack([x[i * tau : i * tau + n] for i in range(m)])
 
 
@@ -151,8 +144,7 @@ class Metrics:
         flat = flat[flat > 0]
         if len(flat) == 0:
             return np.nan
-        r_min = np.percentile(flat, 5)
-        r_max = np.percentile(flat, 45)
+        r_min, r_max = np.percentile(flat, 5), np.percentile(flat, 45)
         if r_min >= r_max:
             return np.nan
         r_vals = np.logspace(np.log10(r_min), np.log10(r_max), n_r)
@@ -262,18 +254,17 @@ class RegimeDetector:
         return 'weakly_chaotic'
 
 
-# ── 6. BIBLIOTECA DE δ (ADAPTADA PARA UI COMPATIBLE) ─────────
+# ── 6. BIBLIOTECA DE δ (UI COMPATIBLE) ───────────────────────
 class DeltaLibrary:
-    FALLBACK_DICT = {'lambda': 0.08, 'D2': 0.05, 'LZ': 0.07, 'TE': 0.12, 'SampEn': 0.35}
     def get(self, regime: str) -> dict:
-        """Retorna δ por métrica y régimen (dict)."""
-        return DELTA_LIBRARY.get(regime, self.FALLBACK_DICT)
+        return DELTA_LIBRARY.get(regime, {
+            'lambda': 0.08, 'D2': 0.05, 'LZ': 0.07, 'TE': 0.12, 'SampEn': 0.35
+        })
 
 
 # ── 7. H3 — R³ DESCRIPTOR ────────────────────────────────────
 class R3Descriptor:
     COHERENCE_THRESHOLD = 0.57
-
     def __init__(self):
         self.regime_detector = RegimeDetector()
         self.delta_lib = DeltaLibrary()
@@ -286,20 +277,17 @@ class R3Descriptor:
             base.get('D2', np.nan)
         )
         
-        cfg = SampEnAdaptor.get(regime) 
-        base['SampEn'] = Metrics.sample_entropy(x, m=cfg['m'], r_ratio=cfg['r_ratio'], tau=tau)
+        cfg = SAMPEN_CONFIG.get(regime, SAMPEN_CONFIG['weakly_chaotic'])
+        base['SampEn'] = compute_sampen(x, m=cfg['m'], r_ratio=cfg['r_ratio'], tau=tau)
         base['_regime'] = regime
 
-        tau_p = max(1, tau + 1)
-        tau_m = max(1, tau - 1)
+        tau_p, tau_m = max(1, tau + 1), max(1, tau - 1)
         mp = Metrics.compute_all(x, tau_p, m, regime=regime)
         mm = Metrics.compute_all(x, tau_m, m, regime=regime) if tau_m != tau else base
 
         grads = {}
         for k in ('lambda', 'D2', 'LZ', 'TE', 'SampEn'):
-            v0 = base.get(k, np.nan)
-            vp = mp.get(k, np.nan)
-            vm = mm.get(k, np.nan)
+            v0, vp, vm = base.get(k, np.nan), mp.get(k, np.nan), mm.get(k, np.nan)
             if any(np.isnan([v0, vp, vm])):
                 grads[k] = np.nan
             else:
@@ -310,77 +298,48 @@ class R3Descriptor:
     def score(self, x: np.ndarray, tau: int, m: int = 3) -> dict:
         grads, metrics = self._gradients(x, tau, m)
         regime = metrics.pop('_regime', 'weakly_chaotic')
-        delta_dict = self.delta_lib.get(regime)  # ← Dict por métrica y régimen
+        delta_dict = self.delta_lib.get(regime)
 
-        stability_map = {}
-        stability_weights = []
-        valid_n = 0
-
+        stability_map, stability_weights = {}, []
         for k, g in grads.items():
             if not np.isnan(g):
-                valid_n += 1
-                # 🔑 FIX CLAVE: extraer delta específico para cada métrica
                 delta_k = delta_dict.get(k, 0.1)
-                is_stable = g < delta_k
                 w_stab = max(0.0, 1.0 - (g / delta_k)) if delta_k > 1e-12 else 0.0
-                
-                # Modulación contextual solo para SampEn
-                w_compat = 1.0
-                if k == 'SampEn':
-                    w_compat = SampEnAdaptor.compatibility_weight(metrics['SampEn'], regime)
-                    weight = w_stab * w_compat
-                else:
-                    weight = w_stab
-                    
+                w_compat = sampen_weight(metrics['SampEn'], regime) if k == 'SampEn' else 1.0
+                weight = w_stab * w_compat
                 stability_weights.append(weight)
                 stability_map[k] = {
-                    'gradient': g, 
-                    'stable': is_stable, 
-                    'delta': delta_k,
-                    'weight': weight,
-                    'w_compat': w_compat
+                    'gradient': g, 'stable': g < delta_k, 'delta': delta_k,
+                    'weight': weight, 'w_compat': w_compat
                 }
 
-        # Score vectorial
+        valid_n = len(stability_weights)
         if valid_n < 2:
-            r3_score    = np.nan
-            r3_std      = np.nan
-            r3_min      = np.nan
-            r3_dominant = 'insuficiente'
+            r3_score, r3_std, r3_min, r3_dominant = np.nan, np.nan, np.nan, 'insuficiente'
         else:
-            r3_score    = float(np.mean(stability_weights))
-            r3_std      = float(np.std(stability_weights))
-            r3_min      = float(np.min(stability_weights))
+            r3_score = float(np.mean(stability_weights))
+            r3_std = float(np.std(stability_weights))
+            r3_min = float(np.min(stability_weights))
             r3_dominant = min(stability_map, key=lambda k: stability_map[k]['weight'])
 
-        # Coherencia
-        if np.isnan(r3_score):
-            coherent = False
-        else:
-            coherent = (
-                r3_score >= self.COHERENCE_THRESHOLD and
-                r3_min   >= self.COHERENCE_THRESHOLD / 2 and
-                regime   != 'noisy'
-            )
+        coherent = (
+            not np.isnan(r3_score) and
+            r3_score >= self.COHERENCE_THRESHOLD and
+            r3_min >= self.COHERENCE_THRESHOLD / 2 and
+            regime != 'noisy'
+        )
 
-        # Para app.py: delta debe ser escalar en ax.axvline()
+        # Escalar para UI (ax.axvline)
         delta_scalar = float(np.mean(list(delta_dict.values())))
 
         return {
-            'R3_score':     r3_score,
-            'R3_std':       r3_std,
-            'R3_min':       r3_min,
-            'R3_dominant':  r3_dominant,
-            'R3_vector':    {k: round(v['weight'], 8) for k, v in stability_map.items()},
-            'coherent':     coherent,
-            'regime':       regime,
-            'regime_desc':  RegimeDetector.DESCRIPTIONS.get(regime, regime),
-            'delta':        delta_scalar,  # ← Escalar seguro para UI
-            'metrics':      metrics,
-            'gradients':    grads,
-            'stability_map': stability_map,
-            'n_valid':      valid_n,
+            'R3_score': r3_score, 'R3_std': r3_std, 'R3_min': r3_min, 'R3_dominant': r3_dominant,
+            'R3_vector': {k: round(v['weight'], 8) for k, v in stability_map.items()},
+            'coherent': coherent, 'regime': regime, 'regime_desc': RegimeDetector.DESCRIPTIONS.get(regime, regime),
+            'delta': delta_scalar,
+            'metrics': metrics, 'gradients': grads, 'stability_map': stability_map, 'n_valid': valid_n
         }
+
 
 # ── 8. PIPELINE INTEGRADO ────────────────────────────────────
 class AttractorPipeline:
@@ -412,27 +371,21 @@ class AttractorPipeline:
 
         self._log(f"τ={tau} | ε={eps_scalar:.5f} | Régimen={r3['regime_desc']} | R3={r3['R3_score']:.6f}")
 
-        result = {
+        return {
             'label': label, 'x_normalized': x, 'tau': tau, 'tau_initial': tau0,
             'epsilon': eps_scalar, 'epsilon_series': eps_series, 'embedding': Y,
             'metrics': metrics, 'regime': r3['regime'], 'regime_desc': r3['regime_desc'], 'R3': r3
         }
-        self.results[label] = result
-        return result
 
 
 # ── SEÑALES DE REFERENCIA ────────────────────────────────────
 def _logistic_map(N: int = 1000, r: float = 3.9) -> np.ndarray:
-    x = 0.1
-    out = [x]
-    for _ in range(N - 1):
-        x = r * x * (1 - x)
-        out.append(x)
+    x = 0.1; out = [x]
+    for _ in range(N - 1): x = r * x * (1 - x); out.append(x)
     return np.array(out)
 
 def demo_signals(N: int = 1000) -> dict:
-    t = np.linspace(0, 100, N)
-    rng = np.random.default_rng(0)
+    t = np.linspace(0, 100, N); rng = np.random.default_rng(0)
     def lorenz_ts(n=N, sigma=10, rho=28, beta=8/3, dt=0.01):
         x, y, z = 1.0, 1.0, 1.05
         for _ in range(2000):
@@ -441,27 +394,13 @@ def demo_signals(N: int = 1000) -> dict:
         xs = []
         for _ in range(n):
             dx = sigma*(y-x); dy = x*(rho-z)-y; dz = x*y-beta*z
-            x += dx*dt; y += dy*dt; z += dz*dt
-            xs.append(x)
-        return np.array(xs)
-    def rossler_ts(n=N, a=0.2, b=0.2, c=5.7, dt=0.05):
-        x, y, z = 1.0, 0.0, 0.0
-        for _ in range(1000):
-            dx = -y-z; dy = x+a*y; dz = b+z*(x-c)
-            x += dx*dt; y += dy*dt; z += dz*dt
-        xs = []
-        for _ in range(n):
-            dx = -y-z; dy = x+a*y; dz = b+z*(x-c)
-            x += dx*dt; y += dy*dt; z += dz*dt
-            xs.append(x)
+            x += dx*dt; y += dy*dt; z += dz*dt; xs.append(x)
         return np.array(xs)
     return {
-        'lorenz': lorenz_ts(), 'rossler': rossler_ts(),
-        'periodic': np.sin(2*np.pi*0.1*t) + 0.05*rng.normal(size=N),
+        'lorenz': lorenz_ts(), 'periodic': np.sin(2*np.pi*0.1*t) + 0.05*rng.normal(size=N),
         'noisy': rng.normal(size=N), 'logistic': _logistic_map(N, r=3.9),
     }
 
 if __name__ == '__main__':
     pipe = AttractorPipeline(m=3, max_tau=50, verbose=True)
-    for name, sig in demo_signals(800).items():
-        pipe.run(sig, label=name)
+    for name, sig in demo_signals(800).items(): pipe.run(sig, label=name)
