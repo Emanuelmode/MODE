@@ -3,7 +3,7 @@ pipeline.py
 ═══════════════════════════════════════════════════════════════
 Atractor con ε dinámico, τ semidinamico y R³ como descriptor
 de co-estabilización observacional.
-REVISIÓN 2026-05c: Arquitectura modular + SampEn externo + δ por régimen
+REVISIÓN 2026-05d: Calibración fina + δ por métrica + SampEn robusto
 ═══════════════════════════════════════════════════════════════
 """
 import numpy as np
@@ -16,10 +16,22 @@ try:
     from sampen_library import SAMPEN_CONFIG, compute as compute_sampen, compatibility_weight as sampen_weight
     from r3_delta_library import DELTA_LIBRARY
 except ImportError as _ie:
-    # Fallback defensivo si las librerías externas no existen
+    # Fallback seguro para entornos sin las librerías externas
     print(f"⚠ Fallback calibración: {_ie}")
-    SAMPEN_CONFIG = {'weakly_chaotic': {'m': 2, 'r_ratio': 0.2, 'mu': 0.57, 'sigma': 0.12}}
-    DELTA_LIBRARY = {}
+    SAMPEN_CONFIG = {
+        'stable': {'m': 2, 'r_ratio': 0.15, 'mu': 0.02, 'sigma': 0.015},
+        'weakly_chaotic': {'m': 2, 'r_ratio': 0.20, 'mu': 0.57, 'sigma': 0.12},
+        'chaotic': {'m': 2, 'r_ratio': 0.25, 'mu': 0.53, 'sigma': 0.10},
+        'hyperchaotic': {'m': 2, 'r_ratio': 0.30, 'mu': 1.51, 'sigma': 0.30},
+        'noisy': {'m': 2, 'r_ratio': 0.35, 'mu': 1.65, 'sigma': 0.35}
+    }
+    DELTA_LIBRARY = {
+        'stable': {'lambda': 0.02, 'D2': 0.10, 'LZ': 0.02, 'TE': 0.03, 'SampEn': 0.65},
+        'weakly_chaotic': {'lambda': 0.08, 'D2': 0.05, 'LZ': 0.07, 'TE': 0.12, 'SampEn': 0.35},
+        'chaotic': {'lambda': 0.19, 'D2': 0.02, 'LZ': 0.18, 'TE': 0.07, 'SampEn': 0.02},
+        'hyperchaotic': {'lambda': 0.13, 'D2': 0.02, 'LZ': 0.02, 'TE': 0.06, 'SampEn': 0.17},
+        'noisy': {'lambda': 0.20, 'D2': 0.05, 'LZ': 0.07, 'TE': 0.12, 'SampEn': 0.35}
+    }
     compute_sampen = lambda x, m=2, r_ratio=0.2, tau=1: np.nan
     sampen_weight  = lambda v, r: 1.0
 
@@ -30,7 +42,7 @@ def embed(x: np.ndarray, m: int, tau: int) -> np.ndarray:
     N = len(x)
     n = N - (m - 1) * tau
     if n <= 0:
-        raise ValueError(f"Serie demasiado corta para m={m}, τ={tau}.")
+        raise ValueError(f"Serie demasiado corta para m={m}, τ={tau}. Necesitás al menos {(m-1)*tau + 1} puntos.")
     return np.column_stack([x[i * tau : i * tau + n] for i in range(m)])
 
 
@@ -61,7 +73,8 @@ class SemidynamicTau:
         x1, x2 = x[:-lag], x[lag:]
         h2d, _, _ = np.histogram2d(x1, x2, bins=self.bins)
         pxy = h2d / (h2d.sum() + 1e-12)
-        px, py = pxy.sum(axis=1, keepdims=True), pxy.sum(axis=0, keepdims=True)
+        px = pxy.sum(axis=1, keepdims=True)
+        py = pxy.sum(axis=0, keepdims=True)
         denom = px * py
         mask = (pxy > 0) & (denom > 0)
         return float(np.sum(pxy[mask] * np.log2(pxy[mask] / denom[mask])))
@@ -132,7 +145,8 @@ class Metrics:
         flat = flat[flat > 0]
         if len(flat) == 0:
             return np.nan
-        r_min, r_max = np.percentile(flat, 5), np.percentile(flat, 45)
+        r_min = np.percentile(flat, 5)
+        r_max = np.percentile(flat, 45)
         if r_min >= r_max:
             return np.nan
         r_vals = np.logspace(np.log10(r_min), np.log10(r_max), n_r)
@@ -150,7 +164,7 @@ class Metrics:
             if cov.ndim == 0:
                 proj = Y_centered[:, 0]
             else:
-                eigvals, eigvecs = np.linalg.eigh(cov)
+                _, eigvecs = np.linalg.eigh(cov)
                 proj = Y_centered @ eigvecs[:, -1]
             seq = proj
         else:
@@ -217,7 +231,6 @@ class RegimeDetector:
         'hyperchaotic': 'Hipercáótico / Estructurado',
         'noisy': 'Ruido / Sin estructura dinámica'
     }
-
     def classify(self, lam: float, lz: float = None, d2: float = None) -> str:
         if not np.isnan(lam) and lam < 0:
             return 'stable'
@@ -232,51 +245,36 @@ class RegimeDetector:
                 return 'stable'
             return 'weakly_chaotic'
         if lz is not None and not np.isnan(lz):
-            if lz < 0.25:
-                return 'stable'
-            if lz < 0.55:
-                return 'weakly_chaotic'
-            if lz < 0.92:
-                return 'chaotic'
+            if lz < 0.25: return 'stable'
+            if lz < 0.55: return 'weakly_chaotic'
+            if lz < 0.92: return 'chaotic'
             return 'hyperchaotic'
         if not np.isnan(lam):
-            if lam < 0.15:
-                return 'weakly_chaotic'
-            if lam < 0.50:
-                return 'chaotic'
+            if lam < 0.15: return 'weakly_chaotic'
+            if lam < 0.50: return 'chaotic'
             return 'hyperchaotic'
         return 'weakly_chaotic'
 
 
 # ── 6. BIBLIOTECA DE δ (ADAPTADA PARA UI COMPATIBLE) ─────────
 class DeltaLibrary:
-    FALLBACK_SCALARS = {'stable': 0.06, 'weakly_chaotic': 0.07, 'chaotic': 0.08, 'hyperchaotic': 0.15, 'noisy': 0.20}
-
+    FALLBACK_DICT = {'lambda': 0.08, 'D2': 0.05, 'LZ': 0.07, 'TE': 0.12, 'SampEn': 0.35}
     def get(self, regime: str) -> dict:
-        """Retorna δ por métrica y régimen (dict). Para UI, extraer media como escalar."""
-        if regime in DELTA_LIBRARY:
-            return DELTA_LIBRARY[regime]
-        # Fallback conservador por métrica si el régimen no existe
-        return {
-            'lambda': 0.08, 'D2': 0.05, 'LZ': 0.07, 'TE': 0.12, 'SampEn': 0.35
-        }
+        """Retorna δ por métrica y régimen (dict)."""
+        return DELTA_LIBRARY.get(regime, self.FALLBACK_DICT)
 
 
 # ── 7. H3 — R³ DESCRIPTOR ────────────────────────────────────
 class R3Descriptor:
     COHERENCE_THRESHOLD = 0.57
-
     def __init__(self):
         self.regime_detector = RegimeDetector()
         self.delta_lib = DeltaLibrary()
 
     def _gradients(self, x: np.ndarray, tau: int, m: int) -> tuple:
         base = Metrics.compute_all(x, tau, m)
-        regime = self.regime_detector.classify(
-            base.get('lambda', np.nan),
-            base.get('LZ', np.nan),
-            base.get('D2', np.nan)
-        )
+        regime = self.regime_detector.classify(base.get('lambda', np.nan), base.get('LZ', np.nan), base.get('D2', np.nan))
+        
         # Recalcular SampEn con parámetros del régimen detectado
         cfg = SAMPEN_CONFIG.get(regime, SAMPEN_CONFIG['weakly_chaotic'])
         base['SampEn'] = compute_sampen(x, m=cfg['m'], r_ratio=cfg['r_ratio'], tau=tau)
@@ -299,22 +297,19 @@ class R3Descriptor:
     def score(self, x: np.ndarray, tau: int, m: int = 3) -> dict:
         grads, metrics = self._gradients(x, tau, m)
         regime = metrics.pop('_regime', 'weakly_chaotic')
-        delta_dict = self.delta_lib.get(regime)  # ← Dict por métrica y régimen
+        delta_dict = self.delta_lib.get(regime)
 
         stability_map, stability_weights = {}, []
         for k, g in grads.items():
             if not np.isnan(g):
-                delta_k = delta_dict.get(k, 0.1)  # ← Usa δ específico para cada métrica
+                delta_k = delta_dict.get(k, 0.1)
                 w_stab = max(0.0, 1.0 - (g / delta_k)) if delta_k > 0 else 0.0
                 w_compat = sampen_weight(metrics['SampEn'], regime) if k == 'SampEn' else 1.0
                 weight = w_stab * w_compat
                 stability_weights.append(weight)
                 stability_map[k] = {
-                    'gradient': g,
-                    'stable': g < delta_k,
-                    'delta': delta_k,
-                    'weight': weight,
-                    'w_compat': w_compat
+                    'gradient': g, 'stable': g < delta_k, 'delta': delta_k,
+                    'weight': weight, 'w_compat': w_compat
                 }
 
         valid_n = len(stability_weights)
@@ -337,19 +332,11 @@ class R3Descriptor:
         delta_scalar = float(np.mean(list(delta_dict.values())))
 
         return {
-            'R3_score': r3_score,
-            'R3_std': r3_std,
-            'R3_min': r3_min,
-            'R3_dominant': r3_dominant,
+            'R3_score': r3_score, 'R3_std': r3_std, 'R3_min': r3_min, 'R3_dominant': r3_dominant,
             'R3_vector': {k: round(v['weight'], 8) for k, v in stability_map.items()},
-            'coherent': coherent,
-            'regime': regime,
-            'regime_desc': RegimeDetector.DESCRIPTIONS.get(regime, regime),
-            'delta': delta_scalar,  # ← Escalar seguro para UI sin tocar app.py
-            'metrics': metrics,
-            'gradients': grads,
-            'stability_map': stability_map,
-            'n_valid': valid_n
+            'coherent': coherent, 'regime': regime, 'regime_desc': RegimeDetector.DESCRIPTIONS.get(regime, regime),
+            'delta': delta_scalar,
+            'metrics': metrics, 'gradients': grads, 'stability_map': stability_map, 'n_valid': valid_n
         }
 
 
@@ -384,17 +371,9 @@ class AttractorPipeline:
         self._log(f"τ={tau} | ε={eps_scalar:.5f} | Régimen={r3['regime_desc']} | R3={r3['R3_score']:.6f}")
 
         result = {
-            'label': label,
-            'x_normalized': x,
-            'tau': tau,
-            'tau_initial': tau0,
-            'epsilon': eps_scalar,
-            'epsilon_series': eps_series,
-            'embedding': Y,
-            'metrics': metrics,
-            'regime': r3['regime'],
-            'regime_desc': r3['regime_desc'],
-            'R3': r3
+            'label': label, 'x_normalized': x, 'tau': tau, 'tau_initial': tau0,
+            'epsilon': eps_scalar, 'epsilon_series': eps_series, 'embedding': Y,
+            'metrics': metrics, 'regime': r3['regime'], 'regime_desc': r3['regime_desc'], 'R3': r3
         }
         self.results[label] = result
         return result
@@ -409,59 +388,36 @@ def _logistic_map(N: int = 1000, r: float = 3.9) -> np.ndarray:
         out.append(x)
     return np.array(out)
 
-
 def demo_signals(N: int = 1000) -> dict:
     t = np.linspace(0, 100, N)
     rng = np.random.default_rng(0)
-
     def lorenz_ts(n=N, sigma=10, rho=28, beta=8/3, dt=0.01):
         x, y, z = 1.0, 1.0, 1.05
-        for _ in range(2000):  # warmup
-            dx = sigma*(y-x)
-            dy = x*(rho-z)-y
-            dz = x*y-beta*z
-            x += dx*dt
-            y += dy*dt
-            z += dz*dt
+        for _ in range(2000):
+            dx = sigma*(y-x); dy = x*(rho-z)-y; dz = x*y-beta*z
+            x += dx*dt; y += dy*dt; z += dz*dt
         xs = []
         for _ in range(n):
-            dx = sigma*(y-x)
-            dy = x*(rho-z)-y
-            dz = x*y-beta*z
-            x += dx*dt
-            y += dy*dt
-            z += dz*dt
+            dx = sigma*(y-x); dy = x*(rho-z)-y; dz = x*y-beta*z
+            x += dx*dt; y += dy*dt; z += dz*dt
             xs.append(x)
         return np.array(xs)
-
     def rossler_ts(n=N, a=0.2, b=0.2, c=5.7, dt=0.05):
         x, y, z = 1.0, 0.0, 0.0
-        for _ in range(1000):  # warmup
-            dx = -y-z
-            dy = x+a*y
-            dz = b+z*(x-c)
-            x += dx*dt
-            y += dy*dt
-            z += dz*dt
+        for _ in range(1000):
+            dx = -y-z; dy = x+a*y; dz = b+z*(x-c)
+            x += dx*dt; y += dy*dt; z += dz*dt
         xs = []
         for _ in range(n):
-            dx = -y-z
-            dy = x+a*y
-            dz = b+z*(x-c)
-            x += dx*dt
-            y += dy*dt
-            z += dz*dt
+            dx = -y-z; dy = x+a*y; dz = b+z*(x-c)
+            x += dx*dt; y += dy*dt; z += dz*dt
             xs.append(x)
         return np.array(xs)
-
     return {
-        'lorenz': lorenz_ts(),
-        'rossler': rossler_ts(),
+        'lorenz': lorenz_ts(), 'rossler': rossler_ts(),
         'periodic': np.sin(2*np.pi*0.1*t) + 0.05*rng.normal(size=N),
-        'noisy': rng.normal(size=N),
-        'logistic': _logistic_map(N, r=3.9),
+        'noisy': rng.normal(size=N), 'logistic': _logistic_map(N, r=3.9),
     }
-
 
 if __name__ == '__main__':
     pipe = AttractorPipeline(m=3, max_tau=50, verbose=True)
