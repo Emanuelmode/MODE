@@ -263,8 +263,10 @@ class DeltaLibrary:
 
 
 # ── 7. H3 — R³ DESCRIPTOR ────────────────────────────────────
+# ── 7. H3 — R³ DESCRIPTOR (CORREGIDA) ────────────────────────────────────
 class R3Descriptor:
     COHERENCE_THRESHOLD = 0.57
+
     def __init__(self):
         self.regime_detector = RegimeDetector()
         self.delta_lib = DeltaLibrary()
@@ -277,11 +279,13 @@ class R3Descriptor:
             base.get('D2', np.nan)
         )
         
-        cfg = SAMPEN_CONFIG.get(regime, SAMPEN_CONFIG['weakly_chaotic'])
-        base['SampEn'] = compute_sampen(x, m=cfg['m'], r_ratio=cfg['r_ratio'], tau=tau)
+        # Recalcular SampEn con parámetros del régimen detectado
+        cfg = SampEnAdaptor.get(regime) 
+        base['SampEn'] = Metrics.sample_entropy(x, m=cfg['m'], r_ratio=cfg['r_ratio'], tau=tau)
         base['_regime'] = regime
 
-        tau_p, tau_m = max(1, tau + 1), max(1, tau - 1)
+        tau_p = max(1, tau + 1)
+        tau_m = max(1, tau - 1)
         mp = Metrics.compute_all(x, tau_p, m, regime=regime)
         mm = Metrics.compute_all(x, tau_m, m, regime=regime) if tau_m != tau else base
 
@@ -298,21 +302,63 @@ class R3Descriptor:
     def score(self, x: np.ndarray, tau: int, m: int = 3) -> dict:
         grads, metrics = self._gradients(x, tau, m)
         regime = metrics.pop('_regime', 'weakly_chaotic')
-        delta_dict = self.delta_lib.get(regime)
+        delta_dict = self.delta_lib.get(regime)  # ← Dict por métrica
 
         stability_map, stability_weights = {}, []
+        valid_n = 0
+
         for k, g in grads.items():
             if not np.isnan(g):
+                valid_n += 1
+                # 🔑 FIX CRÍTICO: Extraer el delta específico para la métrica 'k'
                 delta_k = delta_dict.get(k, 0.1)
+                
+                is_stable = g < delta_k
                 w_stab = max(0.0, 1.0 - (g / delta_k)) if delta_k > 1e-12 else 0.0
-                w_compat = sampen_weight(metrics['SampEn'], regime) if k == 'SampEn' else 1.0
-                weight = w_stab * w_compat
+                
+                # Modulación contextual solo para SampEn
+                w_compat = 1.0
+                if k == 'SampEn':
+                    w_compat = SampEnAdaptor.compatibility_weight(metrics['SampEn'], regime)
+                    weight = w_stab * w_compat
+                else:
+                    weight = w_stab
+                    
                 stability_weights.append(weight)
                 stability_map[k] = {
-                    'gradient': g, 'stable': g < delta_k, 'delta': delta_k,
+                    'gradient': g, 'stable': is_stable, 'delta': delta_k,
                     'weight': weight, 'w_compat': w_compat
                 }
 
+        # Score vectorial
+        if valid_n < 2:
+            r3_score, r3_std, r3_min, r3_dominant = np.nan, np.nan, np.nan, 'insuficiente'
+        else:
+            r3_score = float(np.mean(stability_weights))
+            r3_std = float(np.std(stability_weights))
+            r3_min = float(np.min(stability_weights))
+            r3_dominant = min(stability_map, key=lambda k: stability_map[k]['weight'])
+
+        # Coherencia
+        if np.isnan(r3_score):
+            coherent = False
+        else:
+            coherent = (
+                r3_score >= self.COHERENCE_THRESHOLD and
+                r3_min >= self.COHERENCE_THRESHOLD / 2 and
+                regime != 'noisy'
+            )
+
+        # Para app.py: delta debe ser escalar en ax.axvline()
+        delta_scalar = float(np.mean(list(delta_dict.values())))
+
+        return {
+            'R3_score': r3_score, 'R3_std': r3_std, 'R3_min': r3_min, 'R3_dominant': r3_dominant,
+            'R3_vector': {k: round(v['weight'], 8) for k, v in stability_map.items()},
+            'coherent': coherent, 'regime': regime, 'regime_desc': RegimeDetector.DESCRIPTIONS.get(regime, regime),
+            'delta': delta_scalar,  # ← Escalar seguro para UI
+            'metrics': metrics, 'gradients': grads, 'stability_map': stability_map, 'n_valid': valid_n
+        }
         valid_n = len(stability_weights)
         if valid_n < 2:
             r3_score, r3_std, r3_min, r3_dominant = np.nan, np.nan, np.nan, 'insuficiente'
