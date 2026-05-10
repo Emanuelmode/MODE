@@ -26,8 +26,8 @@ except ImportError as _ie:
     st.stop()
 
 # ── Constantes ───────────────────────────────────────────────────
-AUTHOR  = "Investigador Emanuel Duarte"
-VERSION = "v2.2 ECG_FIX"
+AUTHOR  = "Investigador/Autor intelectual Emanuel Duarte"
+VERSION = "v2.2"
 
 P = dict(
     bg       = "#080c10",
