@@ -436,8 +436,37 @@ class R3Descriptor:
         r3_score = np.mean(stability_weights) if stability_weights else 0.0
         coherent = (r3_score >= self.COHERENCE_THRESHOLD) and (regime != 'noisy')
 
+       # ── Score vectorial — preserva distribución de coherencia ──
+        if valid_n < 2:
+            r3_score    = np.nan
+            r3_std      = np.nan
+            r3_min      = np.nan
+            r3_dominant = 'insuficiente'
+        else:
+            r3_score    = float(np.mean(stability_weights))
+            r3_std      = float(np.std(stability_weights))
+            r3_min      = float(np.min(stability_weights))
+            # Métrica dominante: la más inestable (la que más tira R³ abajo)
+            r3_dominant = min(stability_map, key=lambda k: stability_map[k]['weight'])
+
+        # Coherencia: media ≥ umbral Y mínimo ≥ umbral/2 Y no ruidoso
+        # El mínimo evita que una métrica colapsada se oculte en el promedio
+        if np.isnan(r3_score):
+            coherent = False
+        else:
+            coherent = (
+                r3_score >= self.COHERENCE_THRESHOLD and
+                r3_min   >= self.COHERENCE_THRESHOLD / 2 and
+                regime   != 'noisy'
+            )
+
         return {
-            'R3_score':     r3_score,
+            'R3_score':     r3_score,      # media — comparabilidad con versiones anteriores
+            'R3_std':       r3_std,        # dispersión interna — variabilidad de coherencia
+            'R3_min':       r3_min,        # métrica más inestable — el eslabón débil
+            'R3_dominant':  r3_dominant,   # qué métrica tira R³ abajo
+            'R3_vector':    {k: round(v['weight'], 8)
+                             for k, v in stability_map.items()},
             'coherent':     coherent,
             'regime':       regime,
             'regime_desc':  RegimeDetector.DESCRIPTIONS.get(regime, regime),
@@ -447,7 +476,6 @@ class R3Descriptor:
             'stability_map': stability_map,
             'n_valid':      valid_n,
         }
-
 # ═══════════════════════════════════════════
 # 8. PIPELINE INTEGRADO
 # ═══════════════════════════════════════════
