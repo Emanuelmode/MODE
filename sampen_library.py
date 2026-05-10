@@ -83,7 +83,8 @@ def _validate():
     # Coherencia cruzada: mu debe estar dentro de [0, r_ratio*3] aprox para señales típicas
     for regime, cfg in SAMPEN_CONFIG.items():
         if cfg['mu'] > cfg['r_ratio'] * 4.0:
-            raise Warning(f"SAMPEN_CONFIG['{regime}']['mu']={cfg['mu']} puede ser alto para r_ratio={cfg['r_ratio']}")
+            import warnings
+warnings.warn(f"SAMPEN_CONFIG['{regime}']['mu']={cfg['mu']} puede ser alto para r_ratio={cfg['r_ratio']}")
 
 _validate()
 
