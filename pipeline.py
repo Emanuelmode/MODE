@@ -15,9 +15,9 @@ warnings.filterwarnings('ignore')
 try:
     from sampen_library import SAMPEN_CONFIG, compute as compute_sampen, compatibility_weight as sampen_weight
     from r3_delta_library import DELTA_LIBRARY
-except ImportError:
+except ImportError as _ie:
     # Fallback total si las librerías no existen en el entorno
-    print("⚠ Usando calibración fallback (sampen_library/r3_delta_library no encontrados)")
+    print(f"⚠ Fallback calibración: {_ie}")
     SAMPEN_CONFIG = {
         'stable': {'m': 2, 'r_ratio': 0.15, 'mu': 0.02, 'sigma': 0.015},
         'weakly_chaotic': {'m': 2, 'r_ratio': 0.20, 'mu': 0.57, 'sigma': 0.12},
@@ -107,29 +107,23 @@ class Metrics:
     def lyapunov(x: np.ndarray, tau: int, m: int = 3, min_tsep: int = None, max_iter: int = 300) -> float:
         Y = embed(x, m, tau)
         N = len(Y)
-        if min_tsep is None:
-            min_tsep = max(1, int(0.1 * N))
+        if min_tsep is None: min_tsep = max(1, int(0.1 * N))
         dists = cdist(Y, Y)
         np.fill_diagonal(dists, np.inf)
         divergences = []
         for i in range(N):
             mask = np.abs(np.arange(N) - i) > min_tsep
-            d = dists[i].copy()
-            d[~mask] = np.inf
+            d = dists[i].copy(); d[~mask] = np.inf
             j = np.argmin(d)
-            if np.isinf(d[j]) or d[j] == 0:
-                continue
+            if np.isinf(d[j]) or d[j] == 0: continue
             steps = min(max_iter, N - max(i, j) - 1)
-            if steps < 3:
-                continue
+            if steps < 3: continue
             d_series = np.array([np.linalg.norm(Y[min(i+k, N-1)] - Y[min(j+k, N-1)]) for k in range(steps)])
             pos = d_series > 0
-            if pos.sum() < 3:
-                continue
+            if pos.sum() < 3: continue
             t = np.where(pos)[0]
             log_d = np.log(d_series[pos] / d[j])
-            if len(t) > 1:
-                divergences.append(np.polyfit(t, log_d, 1)[0])
+            if len(t) > 1: divergences.append(np.polyfit(t, log_d, 1)[0])
         return float(np.median(divergences)) if divergences else np.nan
 
     @staticmethod
@@ -137,21 +131,17 @@ class Metrics:
         N = len(Y)
         if N > 1500:
             rng = np.random.default_rng(42)
-            Y = Y[rng.choice(N, 1500, replace=False)]
-            N = 1500
+            Y = Y[rng.choice(N, 1500, replace=False)]; N = 1500
         dists = cdist(Y, Y)
         flat = dists[np.triu_indices(N, k=1)]
         flat = flat[flat > 0]
-        if len(flat) == 0:
-            return np.nan
+        if len(flat) == 0: return np.nan
         r_min, r_max = np.percentile(flat, 5), np.percentile(flat, 45)
-        if r_min >= r_max:
-            return np.nan
+        if r_min >= r_max: return np.nan
         r_vals = np.logspace(np.log10(r_min), np.log10(r_max), n_r)
         C_r = np.array([np.mean(flat < r) for r in r_vals])
         valid = (C_r > 0.01) & (C_r < 0.99)
-        if valid.sum() < 4:
-            return np.nan
+        if valid.sum() < 4: return np.nan
         return float(np.polyfit(np.log(r_vals[valid]), np.log(C_r[valid]), 1)[0])
 
     @staticmethod
@@ -159,14 +149,10 @@ class Metrics:
         if Y is not None and Y.shape[0] > 10:
             Y_centered = Y - Y.mean(axis=0)
             cov = np.cov(Y_centered.T)
-            if cov.ndim == 0:
-                proj = Y_centered[:, 0]
-            else:
-                _, eigvecs = np.linalg.eigh(cov)
-                proj = Y_centered @ eigvecs[:, -1]
+            if cov.ndim == 0: proj = Y_centered[:, 0]
+            else: _, eigvecs = np.linalg.eigh(cov); proj = Y_centered @ eigvecs[:, -1]
             seq = proj
-        else:
-            seq = x
+        else: seq = x
         binary = ''.join('1' if v > np.median(seq) else '0' for v in seq)
         n = len(binary)
         c, l, i, k, k_max = 1, 1, 0, 1, 1
@@ -174,32 +160,23 @@ class Metrics:
         while not stop:
             if i + k <= n and l + k <= n and binary[i+k-1] == binary[l+k-1]:
                 k += 1
-                if l + k > n:
-                    c += 1
-                    stop = True
+                if l + k > n: c += 1; stop = True
             else:
-                k_max = max(k, k_max)
-                i += 1
+                k_max = max(k, k_max); i += 1
                 if i == l:
-                    c += 1
-                    l += k_max
-                    stop = l + 1 > n
-                    i, k, k_max = 0, 1, 1
-                else:
-                    k = 1
+                    c += 1; l += k_max; stop = l + 1 > n; i, k, k_max = 0, 1, 1
+                else: k = 1
         norm = n / (np.log2(n) + 1e-10)
         return float(np.clip(c / norm, 0, 2))
 
     @staticmethod
     def transfer_entropy(x: np.ndarray, tau: int, bins: int = 8) -> float:
         n = len(x) - tau
-        if n < 20:
-            return np.nan
+        if n < 20: return np.nan
         X, Xf = x[:n], x[tau:n+tau]
         h2d, _, _ = np.histogram2d(X, Xf, bins=bins)
         pxy = h2d / (h2d.sum() + 1e-12)
-        px = pxy.sum(axis=1)
-        py = pxy.sum(axis=0)
+        px = pxy.sum(axis=1); py = pxy.sum(axis=0)
         te = 0.0
         for i in range(bins):
             for j in range(bins):
@@ -223,24 +200,16 @@ class Metrics:
 # ── 5. DETECTOR DE RÉGIMEN ───────────────────────────────────
 class RegimeDetector:
     DESCRIPTIONS = {
-        'stable': 'Estable / Periódico',
-        'weakly_chaotic': 'Caos débil / Cuasiperiódico',
-        'chaotic': 'Caótico',
-        'hyperchaotic': 'Hipercáótico / Estructurado',
-        'noisy': 'Ruido / Sin estructura dinámica'
+        'stable': 'Estable / Periódico', 'weakly_chaotic': 'Caos débil / Cuasiperiódico',
+        'chaotic': 'Caótico', 'hyperchaotic': 'Hipercáótico / Estructurado', 'noisy': 'Ruido / Sin estructura dinámica'
     }
     def classify(self, lam: float, lz: float = None, d2: float = None) -> str:
-        if not np.isnan(lam) and lam < 0:
-            return 'stable'
+        if not np.isnan(lam) and lam < 0: return 'stable'
         if d2 is not None and not np.isnan(d2) and lz is not None and not np.isnan(lz):
-            if lz > 0.95 and d2 > 2.3:
-                return 'noisy'
-            if lz > 0.92 and d2 > 2.0:
-                return 'hyperchaotic'
-            if lz > 0.55 and d2 > 1.6:
-                return 'chaotic'
-            if lz < 0.30 and d2 < 1.2:
-                return 'stable'
+            if lz > 0.95 and d2 > 2.3: return 'noisy'
+            if lz > 0.92 and d2 > 2.0: return 'hyperchaotic'
+            if lz > 0.55 and d2 > 1.6: return 'chaotic'
+            if lz < 0.30 and d2 < 1.2: return 'stable'
             return 'weakly_chaotic'
         if lz is not None and not np.isnan(lz):
             if lz < 0.25: return 'stable'
@@ -263,10 +232,8 @@ class DeltaLibrary:
 
 
 # ── 7. H3 — R³ DESCRIPTOR ────────────────────────────────────
-# ── 7. H3 — R³ DESCRIPTOR (CORREGIDA) ────────────────────────────────────
 class R3Descriptor:
     COHERENCE_THRESHOLD = 0.57
-
     def __init__(self):
         self.regime_detector = RegimeDetector()
         self.delta_lib = DeltaLibrary()
@@ -274,26 +241,21 @@ class R3Descriptor:
     def _gradients(self, x: np.ndarray, tau: int, m: int) -> tuple:
         base = Metrics.compute_all(x, tau, m)
         regime = self.regime_detector.classify(
-            base.get('lambda', np.nan), 
-            base.get('LZ', np.nan), 
-            base.get('D2', np.nan)
+            base.get('lambda', np.nan), base.get('LZ', np.nan), base.get('D2', np.nan)
         )
-        
-        # Recalcular SampEn con parámetros del régimen detectado
-        cfg = SampEnAdaptor.get(regime) 
-        base['SampEn'] = Metrics.sample_entropy(x, m=cfg['m'], r_ratio=cfg['r_ratio'], tau=tau)
+        # Recalcular SampEn con parámetros del régimen detectado (sin SampEnAdaptor)
+        cfg = SAMPEN_CONFIG.get(regime, SAMPEN_CONFIG['weakly_chaotic'])
+        base['SampEn'] = compute_sampen(x, m=cfg['m'], r_ratio=cfg['r_ratio'], tau=tau)
         base['_regime'] = regime
 
-        tau_p = max(1, tau + 1)
-        tau_m = max(1, tau - 1)
+        tau_p, tau_m = max(1, tau + 1), max(1, tau - 1)
         mp = Metrics.compute_all(x, tau_p, m, regime=regime)
         mm = Metrics.compute_all(x, tau_m, m, regime=regime) if tau_m != tau else base
 
         grads = {}
         for k in ('lambda', 'D2', 'LZ', 'TE', 'SampEn'):
             v0, vp, vm = base.get(k, np.nan), mp.get(k, np.nan), mm.get(k, np.nan)
-            if any(np.isnan([v0, vp, vm])):
-                grads[k] = np.nan
+            if any(np.isnan([v0, vp, vm])): grads[k] = np.nan
             else:
                 denom = np.sqrt(v0**2 + vp**2 + vm**2 + 1e-12) / np.sqrt(3)
                 grads[k] = abs(vp - vm) / denom if denom > 1e-10 else abs(vp - vm)
@@ -302,63 +264,21 @@ class R3Descriptor:
     def score(self, x: np.ndarray, tau: int, m: int = 3) -> dict:
         grads, metrics = self._gradients(x, tau, m)
         regime = metrics.pop('_regime', 'weakly_chaotic')
-        delta_dict = self.delta_lib.get(regime)  # ← Dict por métrica
+        delta_dict = self.delta_lib.get(regime)
 
         stability_map, stability_weights = {}, []
-        valid_n = 0
-
         for k, g in grads.items():
             if not np.isnan(g):
-                valid_n += 1
-                # 🔑 FIX CRÍTICO: Extraer el delta específico para la métrica 'k'
-                delta_k = delta_dict.get(k, 0.1)
-                
-                is_stable = g < delta_k
+                delta_k = delta_dict.get(k, 0.1)  # δ específico por métrica
                 w_stab = max(0.0, 1.0 - (g / delta_k)) if delta_k > 1e-12 else 0.0
-                
-                # Modulación contextual solo para SampEn
-                w_compat = 1.0
-                if k == 'SampEn':
-                    w_compat = SampEnAdaptor.compatibility_weight(metrics['SampEn'], regime)
-                    weight = w_stab * w_compat
-                else:
-                    weight = w_stab
-                    
+                w_compat = sampen_weight(metrics['SampEn'], regime) if k == 'SampEn' else 1.0
+                weight = w_stab * w_compat
                 stability_weights.append(weight)
                 stability_map[k] = {
-                    'gradient': g, 'stable': is_stable, 'delta': delta_k,
+                    'gradient': g, 'stable': g < delta_k, 'delta': delta_k,
                     'weight': weight, 'w_compat': w_compat
                 }
 
-        # Score vectorial
-        if valid_n < 2:
-            r3_score, r3_std, r3_min, r3_dominant = np.nan, np.nan, np.nan, 'insuficiente'
-        else:
-            r3_score = float(np.mean(stability_weights))
-            r3_std = float(np.std(stability_weights))
-            r3_min = float(np.min(stability_weights))
-            r3_dominant = min(stability_map, key=lambda k: stability_map[k]['weight'])
-
-        # Coherencia
-        if np.isnan(r3_score):
-            coherent = False
-        else:
-            coherent = (
-                r3_score >= self.COHERENCE_THRESHOLD and
-                r3_min >= self.COHERENCE_THRESHOLD / 2 and
-                regime != 'noisy'
-            )
-
-        # Para app.py: delta debe ser escalar en ax.axvline()
-        delta_scalar = float(np.mean(list(delta_dict.values())))
-
-        return {
-            'R3_score': r3_score, 'R3_std': r3_std, 'R3_min': r3_min, 'R3_dominant': r3_dominant,
-            'R3_vector': {k: round(v['weight'], 8) for k, v in stability_map.items()},
-            'coherent': coherent, 'regime': regime, 'regime_desc': RegimeDetector.DESCRIPTIONS.get(regime, regime),
-            'delta': delta_scalar,  # ← Escalar seguro para UI
-            'metrics': metrics, 'gradients': grads, 'stability_map': stability_map, 'n_valid': valid_n
-        }
         valid_n = len(stability_weights)
         if valid_n < 2:
             r3_score, r3_std, r3_min, r3_dominant = np.nan, np.nan, np.nan, 'insuficiente'
@@ -375,14 +295,14 @@ class R3Descriptor:
             regime != 'noisy'
         )
 
-        # Escalar para UI (ax.axvline)
+        # Para app.py: delta escalar en ax.axvline()
         delta_scalar = float(np.mean(list(delta_dict.values())))
 
         return {
             'R3_score': r3_score, 'R3_std': r3_std, 'R3_min': r3_min, 'R3_dominant': r3_dominant,
             'R3_vector': {k: round(v['weight'], 8) for k, v in stability_map.items()},
             'coherent': coherent, 'regime': regime, 'regime_desc': RegimeDetector.DESCRIPTIONS.get(regime, regime),
-            'delta': delta_scalar,
+            'delta': delta_scalar,  # ← Escalar seguro para UI
             'metrics': metrics, 'gradients': grads, 'stability_map': stability_map, 'n_valid': valid_n
         }
 
@@ -395,8 +315,7 @@ class AttractorPipeline:
         self.results: dict = {}
 
     def _log(self, msg: str):
-        if self.verbose:
-            print(msg)
+        if self.verbose: print(msg)
 
     def run(self, x: np.ndarray, label: str = 'serie') -> dict:
         x = np.asarray(x, dtype=float)
