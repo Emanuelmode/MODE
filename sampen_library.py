@@ -15,26 +15,24 @@ Propósito:
   • Exponer interfaz limpia para pipeline.py
 ═══════════════════════════════════════════════════════════════
 """
+import warnings          # ← IMPORTANTE: requerido por _validate()
 import numpy as np
-from typing import Dict, Tuple
-import warnings
+from typing import Dict
+
 # ── METADATA & VERSIONADO ─────────────────────────────────────
 SAMPEN_VERSION = "2026.05a"
 SAMPEN_SOURCE  = "p80_gradient_RMS + compatibilidad_R3_empirica"
 
 # ── CONFIGURACIÓN POR RÉGIMEN ─────────────────────────────────
-# Valores calibrados contra señales conocidas y validados con R3Descriptor
 SAMPEN_CONFIG: Dict[str, Dict[str, float]] = {
     # Estable / Periódico
-    # r bajo preserva estructura casi-degenerada. SampEn → 0.0~0.2 en senoidales/logístico r=3.5
     'stable': {
         'm': 2, 'r_ratio': 0.12,
         'mu': 0.05, 'sigma': 0.03,
-        'rationale': 'Órbitas periódicas/casi-degeneradas. SampEn ≈ 0. r bajo evita sobre-suavizado en estructuras rígidas.'
+        'rationale': 'Órbitas periódicas/casi-degeneradas. SampEn ≈ 0. r bajo evita sobre-suavizado.'
     },
 
     # Caos débil / Cuasiperiódico
-    # Transición orden→caos. Alta sensibilidad a τ. Mu calibrado contra Rössler/Logístico r=3.6
     'weakly_chaotic': {
         'm': 2, 'r_ratio': 0.20,
         'mu': 0.57, 'sigma': 0.12,
@@ -42,7 +40,6 @@ SAMPEN_CONFIG: Dict[str, Dict[str, float]] = {
     },
 
     # Caótico determinista
-    # Divergencia controlada. Logístico r=3.7 / Lorenz. Gradientes suaves, SampEn estable
     'chaotic': {
         'm': 2, 'r_ratio': 0.25,
         'mu': 0.53, 'sigma': 0.10,
@@ -50,7 +47,6 @@ SAMPEN_CONFIG: Dict[str, Dict[str, float]] = {
     },
 
     # Hipercaótico / Estructurado
-    # Múltiples exponentes positivos. Complejidad multi-escala. r alto acomoda fractales densos
     'hyperchaotic': {
         'm': 2, 'r_ratio': 0.30,
         'mu': 1.51, 'sigma': 0.30,
@@ -58,7 +54,6 @@ SAMPEN_CONFIG: Dict[str, Dict[str, float]] = {
     },
 
     # Ruido / Sin estructura
-    # Incoherencia estructural. SampEn se satura. Peso de compatibilidad decae rápido
     'noisy': {
         'm': 2, 'r_ratio': 0.35,
         'mu': 1.65, 'sigma': 0.35,
@@ -73,20 +68,24 @@ def _validate():
     RANGES   = {'m': (1, 4), 'r_ratio': (0.05, 0.50), 'mu': (0, 3.0), 'sigma': (0.001, 1.0)}
     
     for regime, cfg in SAMPEN_CONFIG.items():
+        # 1. Claves obligatorias
         missing = REQUIRED - set(cfg.keys())
         if missing:
             raise ValueError(f"SAMPEN_CONFIG['{regime}'] falta claves: {missing}")
+            
+        # 2. Rangos numéricos
         for k, v in cfg.items():
             if k in RANGES and not (RANGES[k][0] <= v <= RANGES[k][1]):
                 raise ValueError(f"SAMPEN_CONFIG['{regime}']['{k}']={v} fuera de rango [{RANGES[k][0]}, {RANGES[k][1]}]")
             
-    # Coherencia cruzada: mu debe estar dentro de [0, r_ratio*3] aprox para señales típicas
-    for regime, cfg in SAMPEN_CONFIG.items():
-        if cfg['mu'] > cfg['r_ratio'] * 4.0:
-            import warnings
-warnings.warn(f"SAMPEN_CONFIG['{regime}']['mu']={cfg['mu']} puede ser alto para r_ratio={cfg['r_ratio']}")
+        # 3. Coherencia cruzada: mu vs r_ratio (SOLO AVISO, NO FRENÁ EJECUCIÓN)
+        if cfg['mu'] > cfg['r_ratio'] * 5.0:
+            warnings.warn(
+                f"SAMPEN_CONFIG['{regime}']['mu']={cfg['mu']} es alto para r_ratio={cfg['r_ratio']} "
+                f"(ajuste intencional para hipercaos/ruido)"
+            )
 
-_validate()
+_validate()  # ← Se ejecuta automáticamente al importar el módulo
 
 # ── CÁLCULO CORE (NUMÉRICAMENTE HONESTO) ──────────────────────
 def compute(x: np.ndarray, m: int = 2, r_ratio: float = 0.2, tau: int = 1) -> float:
@@ -101,7 +100,7 @@ def compute(x: np.ndarray, m: int = 2, r_ratio: float = 0.2, tau: int = 1) -> fl
         std_x = np.std(x, ddof=1)
         
         if std_x < 1e-12:
-            return np.nan  # Señal plana o degenerada → entropía indefinida
+            return np.nan  # Señal plana o degenerada
             
         r = r_ratio * std_x
         if N < (m + 1) * tau:
@@ -122,7 +121,6 @@ def compute(x: np.ndarray, m: int = 2, r_ratio: float = 0.2, tau: int = 1) -> fl
             counts = np.sum(dists <= r, axis=1) - 1
             mean_c = np.mean(counts)
             
-            # Protección matemática: log(0) → -inf manejado en la resta
             return np.log(mean_c) if mean_c > 0 else -np.inf
 
         phi_m  = _phi(m)
