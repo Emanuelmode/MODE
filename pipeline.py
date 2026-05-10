@@ -273,26 +273,33 @@ class DeltaLibrary:
 # ── 7. H3 — R³ DESCRIPTOR ────────────────────────────────────
 class R3Descriptor:
     COHERENCE_THRESHOLD = 0.57
+
     def __init__(self):
         self.regime_detector = RegimeDetector()
         self.delta_lib = DeltaLibrary()
 
     def _gradients(self, x: np.ndarray, tau: int, m: int) -> tuple:
         base = Metrics.compute_all(x, tau, m)
-        regime = self.regime_detector.classify(base.get('lambda', np.nan), base.get('LZ', np.nan), base.get('D2', np.nan))
+        regime = self.regime_detector.classify(
+            base.get('lambda', np.nan), 
+            base.get('LZ', np.nan), 
+            base.get('D2', np.nan)
+        )
         
-        # Recalcular SampEn con parámetros del régimen detectado
-        cfg = SAMPEN_CONFIG.get(regime, SAMPEN_CONFIG['weakly_chaotic'])
-        base['SampEn'] = compute_sampen(x, m=cfg['m'], r_ratio=cfg['r_ratio'], tau=tau)
+        cfg = SampEnAdaptor.get(regime) 
+        base['SampEn'] = Metrics.sample_entropy(x, m=cfg['m'], r_ratio=cfg['r_ratio'], tau=tau)
         base['_regime'] = regime
 
-        tau_p, tau_m = max(1, tau + 1), max(1, tau - 1)
+        tau_p = max(1, tau + 1)
+        tau_m = max(1, tau - 1)
         mp = Metrics.compute_all(x, tau_p, m, regime=regime)
         mm = Metrics.compute_all(x, tau_m, m, regime=regime) if tau_m != tau else base
 
         grads = {}
         for k in ('lambda', 'D2', 'LZ', 'TE', 'SampEn'):
-            v0, vp, vm = base.get(k, np.nan), mp.get(k, np.nan), mm.get(k, np.nan)
+            v0 = base.get(k, np.nan)
+            vp = mp.get(k, np.nan)
+            vm = mm.get(k, np.nan)
             if any(np.isnan([v0, vp, vm])):
                 grads[k] = np.nan
             else:
@@ -303,60 +310,77 @@ class R3Descriptor:
     def score(self, x: np.ndarray, tau: int, m: int = 3) -> dict:
         grads, metrics = self._gradients(x, tau, m)
         regime = metrics.pop('_regime', 'weakly_chaotic')
-        delta_dict = self.delta_lib.get(regime)
+        delta_dict = self.delta_lib.get(regime)  # ← Dict por métrica y régimen
 
-        stability_map, stability_weights = {}, []
+        stability_map = {}
+        stability_weights = []
+        valid_n = 0
+
         for k, g in grads.items():
             if not np.isnan(g):
+                valid_n += 1
+                # 🔑 FIX CLAVE: extraer delta específico para cada métrica
                 delta_k = delta_dict.get(k, 0.1)
-                w_stab = max(0.0, 1.0 - (g / delta_k)) if delta_k > 0 else 0.0
-                w_compat = sampen_weight(metrics['SampEn'], regime) if k == 'SampEn' else 1.0
-                weight = w_stab * w_compat
+                is_stable = g < delta_k
+                w_stab = max(0.0, 1.0 - (g / delta_k)) if delta_k > 1e-12 else 0.0
+                
+                # Modulación contextual solo para SampEn
+                w_compat = 1.0
+                if k == 'SampEn':
+                    w_compat = SampEnAdaptor.compatibility_weight(metrics['SampEn'], regime)
+                    weight = w_stab * w_compat
+                else:
+                    weight = w_stab
+                    
                 stability_weights.append(weight)
                 stability_map[k] = {
-                    'gradient': g, 'stable': g < delta_k, 'delta': delta_k,
-                    'weight': weight, 'w_compat': w_compat
+                    'gradient': g, 
+                    'stable': is_stable, 
+                    'delta': delta_k,
+                    'weight': weight,
+                    'w_compat': w_compat
                 }
 
-        valid_n = len(stability_weights)
+        # Score vectorial
         if valid_n < 2:
-            r3_score, r3_std, r3_min, r3_dominant = np.nan, np.nan, np.nan, 'insuficiente'
+            r3_score    = np.nan
+            r3_std      = np.nan
+            r3_min      = np.nan
+            r3_dominant = 'insuficiente'
         else:
-            r3_score = float(np.mean(stability_weights))
-            r3_std = float(np.std(stability_weights))
-            r3_min = float(np.min(stability_weights))
+            r3_score    = float(np.mean(stability_weights))
+            r3_std      = float(np.std(stability_weights))
+            r3_min      = float(np.min(stability_weights))
             r3_dominant = min(stability_map, key=lambda k: stability_map[k]['weight'])
 
-        coherent = (
-            not np.isnan(r3_score) and
-            r3_score >= self.COHERENCE_THRESHOLD and
-            r3_min >= self.COHERENCE_THRESHOLD / 2 and
-            regime != 'noisy'
-        )
+        # Coherencia
+        if np.isnan(r3_score):
+            coherent = False
+        else:
+            coherent = (
+                r3_score >= self.COHERENCE_THRESHOLD and
+                r3_min   >= self.COHERENCE_THRESHOLD / 2 and
+                regime   != 'noisy'
+            )
 
-        # Para app.py: delta debe ser escalar en ax.axvline(). Devolvemos la media segura.
+        # Para app.py: delta debe ser escalar en ax.axvline()
         delta_scalar = float(np.mean(list(delta_dict.values())))
 
-        # ── reference_library: validación contra rangos de literatura ──
-        range_check = {}
-        for k, v in metrics.items():
-            if v is not None and not (isinstance(v, float) and np.isnan(v)):
-                try:
-                    ok, msg = check_in_range(k, float(v), regime)
-                    range_check[k] = {'ok': ok, 'msg': msg, 'value': round(float(v), 8)}
-                except Exception:
-                    range_check[k] = {'ok': True, 'msg': 'N/A', 'value': None}
-
         return {
-            'R3_score': r3_score, 'R3_std': r3_std, 'R3_min': r3_min, 'R3_dominant': r3_dominant,
-            'R3_vector': {k: round(v['weight'], 8) for k, v in stability_map.items()},
-            'coherent': coherent, 'regime': regime, 'regime_desc': RegimeDetector.DESCRIPTIONS.get(regime, regime),
-            'delta': delta_scalar,
-            'metrics': metrics, 'gradients': grads, 'stability_map': stability_map, 'n_valid': valid_n,
-            'range_check': range_check,
-            'ref_version': REF_VERSION,
+            'R3_score':     r3_score,
+            'R3_std':       r3_std,
+            'R3_min':       r3_min,
+            'R3_dominant':  r3_dominant,
+            'R3_vector':    {k: round(v['weight'], 8) for k, v in stability_map.items()},
+            'coherent':     coherent,
+            'regime':       regime,
+            'regime_desc':  RegimeDetector.DESCRIPTIONS.get(regime, regime),
+            'delta':        delta_scalar,  # ← Escalar seguro para UI
+            'metrics':      metrics,
+            'gradients':    grads,
+            'stability_map': stability_map,
+            'n_valid':      valid_n,
         }
-
 
 # ── 8. PIPELINE INTEGRADO ────────────────────────────────────
 class AttractorPipeline:
