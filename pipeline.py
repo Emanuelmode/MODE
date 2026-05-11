@@ -289,6 +289,8 @@ class DeltaLibrary:
 # ── 7. H3 — R³ DESCRIPTOR ────────────────────────────────────
 class R3Descriptor:
     COHERENCE_THRESHOLD = 0.57
+    MIN_WEIGHT_THRESHOLD = 0.20  # Ninguna métrica puede ser peor que esto
+
     def __init__(self):
         self.regime_detector = RegimeDetector()
         self.delta_lib = DeltaLibrary()
@@ -333,50 +335,69 @@ class R3Descriptor:
         for k, g in grads.items():
             if not np.isnan(g):
                 valid_n += 1
-                # 🔑 FIX CLAVE: extraer delta específico por métrica
+                # Extraer delta específico por métrica
                 delta_k = delta_dict.get(k, 0.1)
                 is_stable = g < delta_k
                 w_stab = max(0.0, 1.0 - (g / delta_k)) if delta_k > 1e-12 else 0.0
-                
+
                 w_compat = 1.0
                 if k == 'SampEn':
                     w_compat = SampEnAdaptor.compatibility_weight(metrics['SampEn'], regime)
                     weight = w_stab * w_compat
                 else:
                     weight = w_stab
-                    
+
                 stability_weights.append(weight)
                 stability_map[k] = {
-                    'gradient': g, 'stable': is_stable, 'delta': delta_k,
-                    'weight': weight, 'w_compat': w_compat
+                    'gradient': g,
+                    'stable': is_stable,
+                    'delta': delta_k,
+                    'weight': weight,
+                    'w_compat': w_compat
                 }
 
+        # Cálculo de R3 Score con MEDIANA (antes era mean)
         if valid_n < 2:
-            r3_score, r3_std, r3_min, r3_dominant = np.nan, np.nan, np.nan, 'insuficiente'
+            r3_score = np.nan
+            r3_std = np.nan
+            r3_min = np.nan
+            r3_dominant = 'insuficiente'
         else:
-            r3_score = float(np.mean(stability_weights))
+            # Usar MEDIANA en lugar de PROMEDIO para ignorar valores extremos
+            r3_score = float(np.median(stability_weights))
             r3_std = float(np.std(stability_weights))
             r3_min = float(np.min(stability_weights))
             r3_dominant = min(stability_map, key=lambda k: stability_map[k]['weight'])
 
+        # Coherencia con condición adicional de min_weight
         if np.isnan(r3_score):
             coherent = False
         else:
+            min_weight = float(np.min(stability_weights)) if stability_weights else 0.0
             coherent = (
                 r3_score >= self.COHERENCE_THRESHOLD and
-                r3_min   >= self.COHERENCE_THRESHOLD / 2 and
-                regime   != 'noisy'
+                r3_min >= self.COHERENCE_THRESHOLD / 2 and
+                min_weight >= self.MIN_WEIGHT_THRESHOLD and
+                regime != 'noisy'
             )
 
         # Escalar seguro para UI (ax.axvline)
         delta_scalar = float(np.mean(list(delta_dict.values())))
 
         return {
-            'R3_score': r3_score, 'R3_std': r3_std, 'R3_min': r3_min, 'R3_dominant': r3_dominant,
+            'R3_score': r3_score,
+            'R3_std': r3_std,
+            'R3_min': r3_min,
+            'R3_dominant': r3_dominant,
             'R3_vector': {k: round(v['weight'], 8) for k, v in stability_map.items()},
-            'coherent': coherent, 'regime': regime, 'regime_desc': RegimeDetector.DESCRIPTIONS.get(regime, regime),
-            'delta': delta_scalar,  # ← float para evitar crash en matplotlib
-            'metrics': metrics, 'gradients': grads, 'stability_map': stability_map, 'n_valid': valid_n,
+            'coherent': coherent,
+            'regime': regime,
+            'regime_desc': RegimeDetector.DESCRIPTIONS.get(regime, regime),
+            'delta': delta_scalar,
+            'metrics': metrics,
+            'gradients': grads,
+            'stability_map': stability_map,
+            'n_valid': valid_n,
         }
 
 
