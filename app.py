@@ -19,6 +19,11 @@ from matplotlib.cm import ScalarMappable
 import streamlit as st
 
 # ── Import del pipeline ──────────────────────────────────────────
+def fmt(x, n=4):
+    try:
+        return f"{float(x):.{n}f}"
+    except:
+        return "NaN"
 try:
     from pipeline import AttractorPipeline
 except ImportError as _ie:
