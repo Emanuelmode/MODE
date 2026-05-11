@@ -3,13 +3,9 @@ r3_delta_library.py
 ═══════════════════════════════════════════════════════════════
 Biblioteca de umbrales δ_{k,r} por métrica y régimen.
 
-REVISIÓN 2026-05e: Calibración baseda en análisis exhaustivo
-de gradientes para señales de referencia.
-- LZ: delta=0.14 (antes 0.02) para acomodar Lorenz (grad=0.11)
-- TE: delta=0.08 (antes 0.03-0.12) como compromiso
-- SampEn: delta=0.25 genérico, 2.50 para r=3.5
-
-Señales de referencia: Lorenz, Rössler, Logístico r=3.5/3.7/3.9, Ruido
+REVISIÓN 2026-05f: 
+- δ_SampEn = 2.50 para todos (corrige peso=0 en señales de orden)
+- Basado en análisis exhaustivo de 9 señales de referencia
 
 Emanuel Duarte — 2026
 ═══════════════════════════════════════════════════════════════
@@ -18,56 +14,55 @@ Emanuel Duarte — 2026
 DELTA_LIBRARY = {
 
     # ── Estable / Periódico ──────────────────────────────────────────
-    # Logístico r=3.5: grad_LZ=0.003, grad_TE=0.02, grad_SampEn=0.85
+    # Logístico r=3.5, senoidales
     'stable': {
         'lambda': 0.05,
         'D2': 0.03,
-        'LZ': 0.14,      # Para señales periódicas
+        'LZ': 0.14,
         'TE': 0.08,
-        'SampEn': 2.50,  # Alto para acomodar r=3.5 (caso extremo)
+        'SampEn': 2.50,  # ⬆ Elevado para evitar peso=0
     },
 
     # ── Caos débil / Cuasiperiódico ─────────────────────────────────
-    # Rössler: grad_LZ=?, grad_TE=?, grad_SampEn=?
+    # Rössler
     'weakly_chaotic': {
         'lambda': 0.05,
         'D2': 0.03,
         'LZ': 0.14,
         'TE': 0.08,
-        'SampEn': 0.25,
+        'SampEn': 2.50,
     },
 
     # ── Caótico ─────────────────────────────────────────────────────
-    # Lorenz: grad_LZ=0.11, grad_TE=0.02, grad_SampEn=0.03
+    # Lorenz, Logístico r=3.7
     'chaotic': {
         'lambda': 0.05,
         'D2': 0.03,
-        'LZ': 0.14,      # ⬆ Subido de 0.07 a 0.14
+        'LZ': 0.14,
         'TE': 0.08,
-        'SampEn': 0.25,
+        'SampEn': 2.50,
     },
 
     # ── Hipercaótico / Estructurado ──────────────────────────────────
-    # Logístico r=3.9: grad_LZ=0.05, grad_TE=0.05, grad_SampEn=0.02
+    # Logístico r=3.9
     'hyperchaotic': {
         'lambda': 0.05,
         'D2': 0.03,
         'LZ': 0.14,
         'TE': 0.08,
-        'SampEn': 0.25,
+        'SampEn': 2.50,
     },
 
     # ── Ruido / Sin estructura dinámica ──────────────────────────────
-    # Ruido blanco: grad_LZ=0.10, grad_TE=0.28, grad_SampEn=0.01
     'noisy': {
         'lambda': 0.05,
         'D2': 0.03,
         'LZ': 0.14,
         'TE': 0.08,
-        'SampEn': 0.25,  # Podría ser menor, pero TE ya filtra ruido
+        'SampEn': 2.50,
     },
 }
 
 # ── CONSTANTES ─────────────────────────────────────────────────
 COHERENCE_THRESHOLD = 0.60
-DELTA_VERSION = "2026.05e"
+DELTA_VERSION = "2026.05f"
