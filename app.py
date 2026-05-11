@@ -845,7 +845,6 @@ def main():
     with tab4:
         st.subheader("Comparación con métodos estándar")
         st.image(topng(fig_baselines(x, result)), use_container_width=True)
-        st.divider()
         bl_rows = [
             ["H Fourier (espectral)",  fmt(hspec,7),   "≤1 plano",         "No distingue caos-ruido"],
             ["H Shannon (señal)",      fmt(hshan,7),   "≤1 máx desor",     "Sin info temporal"],
