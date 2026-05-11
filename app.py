@@ -744,7 +744,6 @@ def main():
     c4.metric("Régimen",         str(r3["regime"]))
     c5.metric("δ activo",        str(r3["delta"]))
     c6.metric("N",               str(len(x)))
-    hspec, hshan, d2 = compute_baselines(x, result)
     st.divider()
 
     tab1,tab2,tab3,tab4,tab5 = st.tabs(
@@ -845,6 +844,8 @@ def main():
     with tab4:
         st.subheader("Comparación con métodos estándar")
         st.image(topng(fig_baselines(x, result)), use_container_width=True)
+        st.divider()
+        hspec, hshan, d2 = compute_baselines(x, result)
         bl_rows = [
             ["H Fourier (espectral)",  fmt(hspec,7),   "≤1 plano",         "No distingue caos-ruido"],
             ["H Shannon (señal)",      fmt(hshan,7),   "≤1 máx desor",     "Sin info temporal"],
