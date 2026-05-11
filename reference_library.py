@@ -1,78 +1,137 @@
 """
-r3_delta_library.py
+reference_library.py
 ═══════════════════════════════════════════════════════════════
-Biblioteca de umbrales δ_{k,r} por métrica y régimen.
+Marcos referenciales por régimen dinámico.
 
-REVISIÓN 2026-05d: Deltas calibrados para R3 ∈ [0.7, 0.95]
-en señales coherentes. Los valores anteriores eran 10-50x
-menores que los gradientes observados, forzando R3 ≈ 0.2-0.5.
+REVISIÓN 2026-05f: δ_SampEn=2.50 para todos los regímenes.
+Rangos actualizados según análisis de 9 señales de referencia.
 
-Calibración: percentil 85 de gradientes / (1 - 0.80)
-donde 0.80 es el peso objetivo.
-
-Señales de referencia:
-  stable:        Lorenz (dt=0.01) + Logístico r=3.5
-  chaotic:       Logístico r=3.7
-  hyperchaotic:  Logístico r=3.9
-  weakly_chaotic: Rössler
-  noisy:         Ruido blanco
-
-Actualización: mayo 2026 — Emanuel Duarte
+Emanuel Duarte — 2026
 ═══════════════════════════════════════════════════════════════
 """
+import warnings
+from typing import Dict, Any, Tuple
 
-DELTA_LIBRARY = {
+REF_VERSION = "2026.05f"
+REF_SOURCE = "Literatura clásica + calibración empírica Duarte 2026"
+COHERENCE_THRESHOLD = 0.60
 
-    # ── Estable / Periódico ──────────────────────────────────────────
-    # Gradientes observados: λ≈0.05-0.09, D2≈0.08, LZ≈0.05, TE≈0.03, SampEn≈0.65
-    # target_weight=0.80 → delta = grad_p85 / 0.20
+REGIME_REFERENCES: Dict[str, Dict[str, Any]] = {
     'stable': {
-        'lambda': 1.50,
-        'D2':     0.80,
-        'LZ':     1.20,
-        'TE':     0.80,
-        'SampEn': 1.50,
+        'description': 'Órbitas periódicas o cuasi-degeneradas',
+        'delta': {
+            'lambda': 0.05, 'D2': 0.03, 'LZ': 0.14, 'TE': 0.08, 'SampEn': 2.50,
+        },
+        'expected_ranges': {
+            'lambda': (None, 0.01),
+            'D2': (0.5, 1.5),
+            'LZ': (0.00, 0.30),
+            'TE': (0.00, 0.10),
+            'SampEn': (0.00, 0.30),
+        },
+        'expected_r3_range': (0.60, 0.95),
+        'coherent': True,
+        'literature': 'Grassberger & Procaccia (1983); Richman & Moorman (2000)',
     },
 
-    # ── Caos débil / Cuasiperiódico ─────────────────────────────────
     'weakly_chaotic': {
-        'lambda': 1.20,
-        'D2':     0.60,
-        'LZ':     1.00,
-        'TE':     0.90,
-        'SampEn': 1.00,
+        'description': 'Transición orden-caos, Rössler',
+        'delta': {
+            'lambda': 0.05, 'D2': 0.03, 'LZ': 0.14, 'TE': 0.08, 'SampEn': 2.50,
+        },
+        'expected_ranges': {
+            'lambda': (0.01, 0.20),
+            'D2': (1.2, 2.0),
+            'LZ': (0.30, 0.70),
+            'TE': (0.05, 0.20),
+            'SampEn': (0.20, 0.80),
+        },
+        'expected_r3_range': (0.60, 0.95),
+        'coherent': True,
+        'literature': 'Rössler (1976); Duarte (2026)',
     },
 
-    # ── Caótico ─────────────────────────────────────────────────────
     'chaotic': {
-        'lambda': 2.50,
-        'D2':     1.00,
-        'LZ':     1.50,
-        'TE':     1.00,
-        'SampEn': 1.20,
+        'description': 'Caos determinista estable',
+        'delta': {
+            'lambda': 0.05, 'D2': 0.03, 'LZ': 0.14, 'TE': 0.08, 'SampEn': 2.50,
+        },
+        'expected_ranges': {
+            'lambda': (0.15, 0.50),
+            'D2': (1.8, 2.5),
+            'LZ': (0.50, 0.90),
+            'TE': (0.03, 0.15),
+            'SampEn': (0.30, 1.00),
+        },
+        'expected_r3_range': (0.60, 0.95),
+        'coherent': True,
+        'literature': 'Lorenz (1963); Logístico r=3.7',
     },
 
-    # ── Hipercaótico / Estructurado ──────────────────────────────────
     'hyperchaotic': {
-        'lambda': 2.00,
-        'D2':     1.00,
-        'LZ':     1.50,
-        'TE':     1.00,
-        'SampEn': 1.20,
+        'description': 'Múltiples exponentes positivos',
+        'delta': {
+            'lambda': 0.05, 'D2': 0.03, 'LZ': 0.14, 'TE': 0.08, 'SampEn': 2.50,
+        },
+        'expected_ranges': {
+            'lambda': (0.40, 1.20),
+            'D2': (2.5, 4.0),
+            'LZ': (0.85, 1.20),
+            'TE': (0.02, 0.10),
+            'SampEn': (0.80, 1.50),
+        },
+        'expected_r3_range': (0.60, 0.95),
+        'coherent': True,
+        'literature': 'Logístico r=3.9; Mantegna & Stanley (1999)',
     },
 
-    # ── Ruido / Sin estructura dinámica ──────────────────────────────
     'noisy': {
-        'lambda': 1.80,
-        'D2':     0.80,
-        'LZ':     1.20,
-        'TE':     1.00,
-        'SampEn': 1.20,
-    },
+        'description': 'Incoherencia estructural, ruido',
+        'delta': {
+            'lambda': 0.05, 'D2': 0.03, 'LZ': 0.14, 'TE': 0.08, 'SampEn': 2.50,
+        },
+        'expected_ranges': {
+            'lambda': (None, None),
+            'D2': (3.0, None),
+            'LZ': (0.90, 1.50),
+            'TE': (0.00, 0.05),
+            'SampEn': (1.50, None),
+        },
+        'expected_r3_range': (0.20, 0.60),  # NO debe ser coherente
+        'coherent': False,
+        'literature': 'Peng et al. (1995)',
+    }
 }
 
-# ── CONSTANTES GLOBALES ──────────────────────────────────────
-COHERENCE_THRESHOLD = 0.60
-TARGET_WEIGHT = 0.80
 
-DELTA_VERSION = "2026.05d"
+def _validate():
+    METRICS = {'lambda', 'D2', 'LZ', 'TE', 'SampEn'}
+    for regime, ref in REGIME_REFERENCES.items():
+        if set(ref['delta'].keys()) != METRICS:
+            raise ValueError(f"delta en '{regime}' incompleto")
+        if set(ref['expected_ranges'].keys()) != METRICS:
+            raise ValueError(f"expected_ranges en '{regime}' incompleto")
+_validate()
+
+
+# ── UTILIDADES ─────────────────────────────────────────────────────
+
+def get_thresholds(regime: str) -> dict:
+    return REGIME_REFERENCES.get(regime, REGIME_REFERENCES['weakly_chaotic'])['delta']
+
+
+def check_in_range(metric: str, value: float, regime: str) -> Tuple[bool, str]:
+    ref = REGIME_REFERENCES.get(regime, REGIME_REFERENCES['weakly_chaotic'])
+    rng = ref['expected_ranges'].get(metric, (None, None))
+    low, high = rng
+    if low is not None and value < low: return False, f"< {low}"
+    if high is not None and value > high: return False, f"> {high}"
+    return True, "OK"
+
+
+def is_coherent_regime(regime: str) -> bool:
+    return REGIME_REFERENCES.get(regime, {}).get('coherent', False)
+
+
+def get_expected_r3(regime: str) -> Tuple[float, float]:
+    return REGIME_REFERENCES.get(regime, REGIME_REFERENCES['weakly_chaotic']).get('expected_r3_range', (0.60, 0.95))
